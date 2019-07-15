@@ -10,7 +10,7 @@ model:
   # number of input channels to the model
   in_channels: 1
   # number of output channels
-  out_channels: 2
+  out_channels: 6
   # determines the order of operators in a single layer (crg - Conv3d+ReLU+GroupNorm)
   layer_order: crg
   # feature maps scale factor
@@ -37,6 +37,6 @@ loaders:
   transformer:
     test:
       raw:
-        - name: Normalize
+        - name: ClipNormalize
         - name: ToTensor
           expand_dims: true

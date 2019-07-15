@@ -7,7 +7,7 @@ model:
   # number of input channels to the model
   in_channels: 1
   # number of output channels
-  out_channels: 2
+  out_channels: 6
   # determines the order of operators in a single layer (crg - Conv3d+ReLU+GroupNorm)
   layer_order: crg
   # feature maps scale factor
@@ -19,7 +19,7 @@ model:
 # trainer configuration
 trainer:
   # path to the checkpoint directory
-  checkpoint_dir: pelvis/3dunet
+  checkpoint_dir: checkpoints/pelvis/3dunet
   # path to latest checkpoint; if provided the training will be resumed from that checkpoint
   resume: null
   # how many iterations between validations
@@ -29,7 +29,7 @@ trainer:
   # max number of epochs
   epochs: 50
   # max number of iterations
-  iters: 100000
+  iters: 10000
   # model with higher eval score is considered better
   eval_score_higher_is_better: True
 # optimizer configuration
@@ -69,10 +69,10 @@ loaders:
   clip_val: [-1000, 2000]
   # paths to the training datasets
   train_path:
-    - '/home/SENSETIME/shenrui/data/pelvis_resampled/dataset_train_temp.txt'
+    - '/home/SENSETIME/shenrui/data/pelvis_resampled/dataset_train.txt'
   # paths to the validation datasets
   val_path:
-    - '/home/SENSETIME/shenrui/data/pelvis_resampled/dataset_val_temp.txt'
+    - '/home/SENSETIME/shenrui/data/pelvis_resampled/dataset_val.txt'
   # how many subprocesses to use for data loading
   num_workers: 8
   # batch size in training process
@@ -81,7 +81,7 @@ loaders:
   transformer:
     train:
       raw:
-        - name: Normalize
+        - name: ClipNormalize
         - name: RandomFlip
         - name: RandomRotate90
         - name: RandomRotate
@@ -91,7 +91,6 @@ loaders:
           mode: reflect
         - name: ElasticDeformation
           spline_order: 3
-        - name: RandomContrast
         - name: ToTensor
           expand_dims: true
       label:
@@ -109,7 +108,7 @@ loaders:
           dtype: 'long'
     test:
       raw:
-        - name: Normalize
+        - name: ClipNormalize
         - name: ToTensor
           expand_dims: true
       label:

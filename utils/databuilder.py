@@ -7,11 +7,9 @@ import torch
 from torch.utils.data import Dataset, DataLoader, ConcatDataset
 
 import os
-import sys
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__),'../')))
 
 from models.unet3d.utils import get_logger
-import transforms
+from utils import transforms
 
 class SliceBuilder:
     def __init__(self, raw_datasets, patch_shape, stride_shape, label_datasets = None):
@@ -82,7 +80,9 @@ class NiftiDataset(Dataset):
         :param phase: 'train' for training, 'val' for validation, 'test' for testing; data augmentation is performed
             only during the 'train' phase
         :param label_path: tag of nifti label data
+        :param clip_value: clip value within a range
         :param transformer_config: data augmentation configuration
+        :param slice_builder_cls: slice builder tool
         """
         assert phase in ['train', 'val', 'test']
         assert len(patch_shape) == 3
@@ -144,12 +144,11 @@ class NiftiDataset(Dataset):
         return self.patch_count
 
     @staticmethod
-    def _transform_datasets(datasets, idx, transformer):
+    def _transform_datasets(dataset, idx, transformer):
         transformed_datasets = []
-        for dataset in datasets:
-            # get the data and apply the transformer
-            transformed_data = transformer(dataset[idx])
-            transformed_datasets.append(transformed_data)
+        # get the data and apply the transformer
+        transformed_data = transformer(dataset[idx])
+        transformed_datasets.append(transformed_data)
 
         # if transformed_datasets is a singleton list return the first element only
         if len(transformed_datasets) == 1:
@@ -295,6 +294,8 @@ def get_test_loaders(config):
     # get test patch size and stride
     test_patch = tuple(loaders_config['test_patch'])
     test_stride = tuple(loaders_config['test_stride'])
+    # get clip value
+    clip_val = tuple(loaders_config['clip_val'])
     num_workers = loaders_config.get('num_workers', 1)
 
     for test_path in test_paths:
@@ -309,10 +310,3 @@ def get_test_loaders(config):
                     yield DataLoader(test_dataset, batch_size=1, num_workers=num_workers, collate_fn=my_collate)
         except Exception:
             logger.info(f'Skipping testing set: {test_path}', exc_info=True)
-
-# FORTEST
-"""
-from models.unet3d.config import load_config
-config = load_config()
-get_train_loaders(config)
-"""

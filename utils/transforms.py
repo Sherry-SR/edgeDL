@@ -350,6 +350,18 @@ class Normalize:
     def __call__(self, m):
         return (m - self.mean) / (self.std + self.eps)
 
+class ClipNormalize:
+    """
+    Normalizes a cliped input tensor to [-1, 1].
+    clip range have to be provided explicitly.
+    """
+
+    def __init__(self, clip_val, **kwargs):
+        self.mean = (clip_val[0] + clip_val[1]) / 2.0
+        self.scale = (clip_val[1] - clip_val[0]) / 2.0
+
+    def __call__(self, m):
+        return (m - self.mean) / self.scale
 
 class RangeNormalize:
     def __init__(self, max_value=255, **kwargs):
@@ -423,7 +435,7 @@ class Transformer:
 
     @staticmethod
     def _transformer_class(class_name):
-        m = importlib.import_module('transforms')
+        m = importlib.import_module('utils.transforms')
         clazz = getattr(m, class_name)
         return clazz
 
