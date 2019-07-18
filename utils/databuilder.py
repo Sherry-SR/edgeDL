@@ -8,7 +8,7 @@ from torch.utils.data import Dataset, DataLoader, ConcatDataset
 
 import os
 
-from models.unet3d.utils import get_logger
+from utils.helper import get_logger
 from utils import transforms
 
 class SliceBuilder:

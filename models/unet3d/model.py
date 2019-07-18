@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 
 from models.unet3d.buildingblocks import Encoder, Decoder, FinalConv, DoubleConv, ExtResNetBlock, SingleConv
-from models.unet3d.utils import create_feature_maps
+from utils.helper import create_feature_maps
 
 
 class UNet3D(nn.Module):
