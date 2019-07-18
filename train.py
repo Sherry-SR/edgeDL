@@ -73,8 +73,6 @@ def _create_lr_scheduler(config, optimizer):
         lr_config['optimizer'] = optimizer
         return clazz(**lr_config)
 
-
-
 def main():
     # Create main logger
     logger = get_logger('UNet3DTrainer')

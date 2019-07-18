@@ -13,13 +13,24 @@ from utils import transforms
 
 class SliceBuilder:
     def __init__(self, raw_datasets, patch_shape, stride_shape, label_datasets = None):
-        self._raw_slices = self._build_slices(raw_datasets, patch_shape, stride_shape)
-        if label_datasets is None:
-            self._label_slices = None
+        if len(patch_shape) == 2 and len(stride_shape) == 2:
+            self._raw_slices = self._build_slices_2D(raw_datasets, patch_shape, stride_shape)
+            if label_datasets is None:
+                self._label_slices = None
+            else:
+                # take the first element in the label_datasets to build slices
+                self._label_slices = self._build_slices_2D(label_datasets, patch_shape, stride_shape)
+                assert len(self._raw_slices) == len(self._label_slices)
+        elif len(patch_shape) == 3 and len(stride_shape) == 3:
+            self._raw_slices = self._build_slices(raw_datasets, patch_shape, stride_shape)
+            if label_datasets is None:
+                self._label_slices = None
+            else:
+                # take the first element in the label_datasets to build slices
+                self._label_slices = self._build_slices(label_datasets, patch_shape, stride_shape)
+                assert len(self._raw_slices) == len(self._label_slices)
         else:
-            # take the first element in the label_datasets to build slices
-            self._label_slices = self._build_slices(label_datasets, patch_shape, stride_shape)
-            assert len(self._raw_slices) == len(self._label_slices)
+            raise ValueError(f"Unsupported patch and stride dimensions '{patch_shape}' and '{stride_shape}'")
 
     @property
     def raw_slices(self):
@@ -64,6 +75,33 @@ class SliceBuilder:
         return slices
 
     @staticmethod
+    def _build_slices_2D(dataset, patch_shape, stride_shape):
+        """Iterates over a given 3-dim dataset patch-by-patch with a given stride
+        and builds an array of slice positions.
+
+        Returns:
+            list of 2D slices, i.e. [(slice, slice), ...]
+        """
+        slices = []
+        assert dataset.ndim == 3
+        i_z, i_y, i_x = dataset.shape
+
+        k_y, k_x = patch_shape
+        s_y, s_x = stride_shape
+        for z in range(i_z):
+            y_steps = SliceBuilder._gen_indices(i_y, k_y, s_y)
+            for y in y_steps:
+                x_steps = SliceBuilder._gen_indices(i_x, k_x, s_x)
+                for x in x_steps:
+                    slice_idx = (
+                        z,
+                        slice(y, y + k_y),
+                        slice(x, x + k_x)
+                    )
+                    slices.append(slice_idx)
+        return slices
+
+    @staticmethod
     def _gen_indices(i, k, s):
         assert i >= k, 'Sample size has to be bigger than the patch size'
         for j in range(0, i - k + 1, s):
@@ -85,8 +123,6 @@ class NiftiDataset(Dataset):
         :param slice_builder_cls: slice builder tool
         """
         assert phase in ['train', 'val', 'test']
-        assert len(patch_shape) == 3
-        assert len(stride_shape) == 3
         self.phase = phase
         self.file_path = file_path
 
@@ -147,7 +183,8 @@ class NiftiDataset(Dataset):
     def _transform_datasets(dataset, idx, transformer):
         transformed_datasets = []
         # get the data and apply the transformer
-        transformed_data = transformer(dataset[idx])
+        data = np.squeeze(dataset[idx])
+        transformed_data = transformer(data)
         transformed_datasets.append(transformed_data)
 
         # if transformed_datasets is a singleton list return the first element only

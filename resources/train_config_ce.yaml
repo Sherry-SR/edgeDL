@@ -37,7 +37,7 @@ trainer:
 # optimizer configuration
 optimizer:
   # initial learning rate
-  learning_rate: 0.0004
+  learning_rate: 0.001
   # weight decay
   weight_decay: 0.0001
 # loss function configuration
@@ -50,7 +50,7 @@ loss:
   ignore_index: null
 # evaluation metric configuration
 eval_metric:
-  name: MeanIoU
+  name: DiceCoefficient
   # a target label that is ignored during metric evaluation
   ignore_index: null
 lr_scheduler:
