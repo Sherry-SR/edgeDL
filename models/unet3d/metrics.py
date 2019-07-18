@@ -22,9 +22,10 @@ class DiceCoefficient:
     DO NOT USE this metric when training with DiceLoss, otherwise the results will be biased towards the loss.
     """
 
-    def __init__(self, epsilon=1e-5, ignore_index=None, **kwargs):
+    def __init__(self, skip_channels=(), epsilon=1e-5, ignore_index=None, **kwargs):
         self.epsilon = epsilon
         self.ignore_index = ignore_index
+        self.skip_channels = skip_channels
 
     def __call__(self, input, target):
         """
@@ -33,7 +34,24 @@ class DiceCoefficient:
         :return: Soft Dice Coefficient averaged over all channels/classes
         """
         # Average across channels in order to get the final score
+        assert input.dim() == 5
+        n_classes = input.size()[1]
+        if target.dim() == 4:
+            target = expand_as_one_hot(target, C=n_classes, ignore_index=self.ignore_index)
         return torch.mean(compute_per_channel_dice(input, target, epsilon=self.epsilon, ignore_index=self.ignore_index))
+
+    def _binarize_predictions(self, input, n_classes):
+        """
+        Puts 1 for the class/channel with the highest probability and 0 in other channels. Returns byte tensor of the
+        same size as the input tensor.
+        """
+        if n_classes == 1:
+            # for single channel input just threshold the probability map
+            result = input > 0.5
+            return result.long()
+
+        _, max_index = torch.max(input, dim=0, keepdim=True)
+        return torch.zeros_like(input, dtype=torch.uint8).scatter_(0, max_index, 1)
 
 
 class MeanIoU:
