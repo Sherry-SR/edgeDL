@@ -3,7 +3,7 @@ import os
 from os.path import join
 from sklearn.model_selection import train_test_split
 
-path = '/home/SENSETIME/shenrui/data/pelvis_resampled'
+path = '/mnt/lustre/shenrui/data/pelvis_resampled'
 
 def arrange(path):
     '''arrange data info to txt'''

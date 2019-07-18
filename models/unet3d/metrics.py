@@ -101,11 +101,11 @@ class MeanIoU:
         _, max_index = torch.max(input, dim=0, keepdim=True)
         return torch.zeros_like(input, dtype=torch.uint8).scatter_(0, max_index, 1)
 
-    def _jaccard_index(self, prediction, target):
+    def _jaccard_index(self, prediction, target, eps=1e-5):
         """
         Computes IoU for a given target and prediction tensors
         """
-        return torch.sum(prediction & target).float() / torch.sum(prediction | target).float()
+        return torch.sum(prediction & target).float() / (torch.sum(prediction | target).float() + eps)
 
 
 class AdaptedRandError:

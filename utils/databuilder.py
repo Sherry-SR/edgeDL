@@ -101,7 +101,7 @@ class NiftiDataset(Dataset):
             self.raw[self.raw < clip_val[0]] = clip_val[0]
 
         mean, std = self._calculate_mean_std(self.raw)
-        self.transformer = transforms.get_transformer(transformer_config, mean, std, phase)
+        self.transformer = transforms.get_transformer(transformer_config, phase, mean=mean, std=std, clip_val=clip_val)
         self.raw_transform = self.transformer.raw_transform()
 
         if phase != 'test':

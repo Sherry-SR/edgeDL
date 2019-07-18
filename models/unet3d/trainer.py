@@ -1,6 +1,7 @@
 import logging
 import os
 
+from tqdm import tqdm 
 import numpy as np
 import torch
 from tensorboardX import SummaryWriter
@@ -153,11 +154,15 @@ class UNet3DTrainer:
         # sets the model in training mode
         self.model.train()
 
-        for i, t in enumerate(train_loader):
-            self.logger.info(
-                f'Training iteration {self.num_iterations}. Batch {i}. Epoch [{self.num_epoch}/{self.max_num_epochs - 1}]')
-
-            input, target, weight = self._split_training_batch(t)
+        for i in tqdm(range(self.max_num_iterations)):
+            train_iterator = iter(train_loader)
+            try:
+                batch = next(train_iterator)
+                input, target, weight = self._split_training_batch(batch)
+            except StopIteration:
+                train_iterator = iter(train_loader)
+                batch = next(train_iterator)
+                input, target, weight = self._split_training_batch(batch)
 
             output, loss = self._forward_pass(input, target, weight)
 
@@ -201,14 +206,10 @@ class UNet3DTrainer:
                 self._log_params()
                 self._log_images(input, target, output)
 
-            if self.max_num_iterations < self.num_iterations:
-                self.logger.info(
-                    f'Maximum number of iterations {self.max_num_iterations} exceeded. Finishing training...')
-                return True
-
             self.num_iterations += 1
-
-        return False
+            
+        self.logger.info(f'Maximum number of iterations {self.max_num_iterations} exceeded. Finishing training...')
+        return True
 
     def validate(self, val_loader):
         self.logger.info('Validating...')
@@ -220,20 +221,21 @@ class UNet3DTrainer:
             # set the model in evaluation mode; final_activation doesn't need to be called explicitly
             self.model.eval()
             with torch.no_grad():
-                for i, t in enumerate(val_loader):
-                    self.logger.info(f'Validation iteration {i}')
-
-                    input, target, weight = self._split_training_batch(t)
+                for i in tqdm(range(self.validate_iters)):
+                    val_iterator = iter(val_loader)
+                    try:
+                        batch = next(val_iterator)
+                        input, target, weight = self._split_training_batch(batch)
+                    except StopIteration:
+                        val_iterator = iter(val_loader)
+                        batch = next(val_iterator)
+                        input, target, weight = self._split_training_batch(batch)
 
                     output, loss = self._forward_pass(input, target, weight)
                     val_losses.update(loss.item(), self._batch_size(input))
 
                     eval_score = self.eval_criterion(output, target)
                     val_scores.update(eval_score.item(), self._batch_size(input))
-
-                    if self.validate_iters is not None and self.validate_iters <= i:
-                        # stop validation
-                        break
 
                 self._log_stats('val', val_losses.avg, val_scores.avg)
                 self.logger.info(f'Validation finished. Loss: {val_losses.avg}. Evaluation score: {val_scores.avg}')
@@ -359,8 +361,8 @@ class UNet3DTrainer:
         return tagged_images
 
     @staticmethod
-    def _normalize_img(img):
-        return (img - np.min(img)) / np.ptp(img)
+    def _normalize_img(img, eps = 1e-5):
+        return (img - np.min(img)) / (np.ptp(img) + eps)
 
     @staticmethod
     def _batch_size(input):

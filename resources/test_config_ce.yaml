@@ -1,5 +1,5 @@
 # path to the checkpoint file containing the model
-model_path: /home/SENSETIME/shenrui/Dropbox/SenseTime/edgeDL/saved_weighst/pelvis/xxx.pytorch
+model_path: /mnt/lustre/shenrui/project/edgeDL/saved_weighst/pelvis/xxx.pytorch
 # Should the patches be stored in memory or written directly to file during prediction.
 # Set to True if you have enough RAM cause it's way faster
 store_predictions_in_memory: True
@@ -33,7 +33,7 @@ loaders:
   num_workers: 8
   # paths to the datasets
   test_path:
-    - '/home/SENSETIME/shenrui/data/pelvis_resampled/dataset_test.txt'
+    - '/mnt/lustre/shenrui/data/pelvis_resampled/dataset_test.txt'
   transformer:
     test:
       raw:

@@ -19,17 +19,19 @@ model:
 # trainer configuration
 trainer:
   # path to the checkpoint directory
-  checkpoint_dir: checkpoints/pelvis/3dunet
+  checkpoint_dir: /mnt/lustre/shenrui/project/edgeDL/checkpoints/pelvis/unet3d
   # path to latest checkpoint; if provided the training will be resumed from that checkpoint
   resume: null
   # how many iterations between validations
   validate_after_iters: 20
   # how many iterations between tensorboard logging
   log_after_iters: 20
+  # how many iterations evaluated in validations
+  validate_iters: 20
   # max number of epochs
   epochs: 50
   # max number of iterations
-  iters: 10000
+  iters: 1000
   # model with higher eval score is considered better
   eval_score_higher_is_better: True
 # optimizer configuration
@@ -69,10 +71,10 @@ loaders:
   clip_val: [-1000, 2000]
   # paths to the training datasets
   train_path:
-    - '/home/SENSETIME/shenrui/data/pelvis_resampled/dataset_train.txt'
+    - '/mnt/lustre/shenrui/data/pelvis_resampled/dataset_train_temp.txt'
   # paths to the validation datasets
   val_path:
-    - '/home/SENSETIME/shenrui/data/pelvis_resampled/dataset_val.txt'
+    - '/mnt/lustre/shenrui/data/pelvis_resampled/dataset_val_temp.txt'
   # how many subprocesses to use for data loading
   num_workers: 8
   # batch size in training process
