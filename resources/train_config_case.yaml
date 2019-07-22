@@ -62,7 +62,7 @@ loaders:
   # validation patch (can be bigger than train patch since there is no backprop)
   val_patch: [350, 350]
   # validation stride (validation patches doesn't need to overlap)
-  val_stride: [100, 100]
+  val_stride: [350, 350]
   # clip value within the range
   clip_val: [-1000, 2000]
   # paths to the training datasets
