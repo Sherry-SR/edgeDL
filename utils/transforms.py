@@ -1,9 +1,11 @@
 import importlib
+import pdb
 
 import numpy as np
 import torch
 from scipy.ndimage import rotate, map_coordinates, gaussian_filter
 from scipy.ndimage.filters import convolve
+from scipy.ndimage.morphology import binary_dilation
 from skimage.filters import gaussian
 from skimage.segmentation import find_boundaries
 from torchvision.transforms import Compose
@@ -207,6 +209,33 @@ class GaussianNoise:
         noisy_m = m + gaussian_noise
         return np.clip(noisy_m, 0, self.max_value).astype(m.dtype)
 
+class SegToEdge:
+    """
+    """
+
+    def __init__(self, dtype=np.float32, radius = 1, connectivity = 8, **kwargs):
+        self.dtype = dtype
+        self.radius = radius
+        self.connectivity = connectivity
+
+    def __call__(self, m):
+        label_val  = np.unique(m)
+        if self.connectivity == 4:
+            k = np.ones((3,3), dtype=int)
+        elif self.connectivity == 8:
+            k = np.zeros((3,3), dtype = int)
+            k[1] = 1
+            k[:, 1] = 1
+        edges = []
+        # add channel dimension
+        for i in range(len(label_val)):
+            mask = m == label_val[i]
+            mask = binary_dilation(mask, k, iterations = self.radius)
+            mask = mask.astype(np.bool)
+            edge = binary_dilation(~mask, k, iterations = self.radius) & mask
+            edges.append(edge)
+
+        return np.array(edges)
 
 class ToTensor:
     """
@@ -225,7 +254,6 @@ class ToTensor:
             m = np.expand_dims(m, axis=0)
 
         return torch.from_numpy(m.astype(dtype=self.dtype))
-
 
 class Identity:
     def __call__(self, m):
