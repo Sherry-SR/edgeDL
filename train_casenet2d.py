@@ -6,17 +6,14 @@ import torch.optim as optim
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 from utils.config import load_config
-from models.unet3d.losses import get_loss_criterion
-from models.unet3d.metrics import get_evaluation_metric
-from models.unet3d.model import get_model
+from models.casenet2d.losses import get_loss_criterion
+from models.casenet2d.metrics import get_evaluation_metric
+from models.casenet2d.model import get_model
 from utils.trainer import NNTrainer
 from utils.helper import get_logger
 from utils.helper import get_number_of_learnable_parameters
 
 from utils.databuilder import get_train_loaders
-
-import warnings
-warnings.filterwarnings("ignore")
 
 def _create_trainer(config, model, optimizer, lr_scheduler, loss_criterion, eval_criterion, loaders, logger):
     assert 'trainer' in config, 'Could not find trainer configuration'
@@ -78,10 +75,10 @@ def _create_lr_scheduler(config, optimizer):
 
 def main():
     # Create main logger
-    logger = get_logger('UNet3DTrainer')
+    logger = get_logger('CASENet2DTrainer')
 
-    parser = argparse.ArgumentParser(description='UNet3D training')
-    parser.add_argument('--config', type=str, help='Path to the YAML config file', default='/home/SENSETIME/shenrui/Dropbox/SenseTime/edgeDL/resources/train_config_unet.yaml')
+    parser = argparse.ArgumentParser(description='CASENet2D training')
+    parser.add_argument('--config', type=str, help='Path to the YAML config file', default='/home/SENSETIME/shenrui/Dropbox/SenseTime/edgeDL/resources/train_config_case.yaml')
     args = parser.parse_args()
 
     # Load and log experiment configuration
@@ -111,9 +108,6 @@ def main():
 
     # Create data loaders
     loaders = get_train_loaders(config)
-
-
-    
 
     # Create the optimizer
     optimizer = _create_optimizer(config, model)

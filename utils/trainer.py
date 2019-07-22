@@ -1,5 +1,6 @@
 import logging
 import os
+import pdb
 
 from tqdm import tqdm 
 import numpy as np
@@ -7,10 +8,9 @@ import torch
 from tensorboardX import SummaryWriter
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
-from . import utils
+from utils.helper import RunningAverage, save_checkpoint, load_checkpoint, get_logger
 
-
-class UNet3DTrainer:
+class NNTrainer:
     """3D UNet trainer.
 
     Args:
@@ -46,7 +46,7 @@ class UNet3DTrainer:
                  eval_score_higher_is_better=True, best_eval_score=None,
                  logger=None):
         if logger is None:
-            self.logger = utils.get_logger('UNet3DTrainer', level=logging.DEBUG)
+            self.logger = get_logger('UNet3DTrainer', level=logging.DEBUG)
         else:
             self.logger = logger
 
@@ -85,7 +85,7 @@ class UNet3DTrainer:
     def from_checkpoint(cls, checkpoint_path, model, optimizer, lr_scheduler, loss_criterion, eval_criterion, loaders,
                         logger=None):
         logger.info(f"Loading checkpoint '{checkpoint_path}'...")
-        state = utils.load_checkpoint(checkpoint_path, model, optimizer)
+        state = load_checkpoint(checkpoint_path, model, optimizer)
         logger.info(
             f"Checkpoint loaded. Epoch: {state['epoch']}. Best val score: {state['best_eval_score']}. Num_iterations: {state['num_iterations']}")
         checkpoint_dir = os.path.split(checkpoint_path)[0]
@@ -113,7 +113,7 @@ class UNet3DTrainer:
                         eval_score_higher_is_better=True, best_eval_score=None,
                         logger=None):
         logger.info(f"Logging pre-trained model from '{pre_trained}'...")
-        utils.load_checkpoint(pre_trained, model, None)
+        load_checkpoint(pre_trained, model, None)
         checkpoint_dir = os.path.split(pre_trained)[0]
         return cls(model, optimizer, lr_scheduler,
                    loss_criterion, eval_criterion,
@@ -148,14 +148,18 @@ class UNet3DTrainer:
         Returns:
             True if the training should be terminated immediately, False otherwise
         """
-        train_losses = utils.RunningAverage()
-        train_eval_scores = utils.RunningAverage()
+        train_losses = RunningAverage()
+        train_eval_scores = RunningAverage()
 
         # sets the model in training mode
         self.model.train()
+        if self.validate_after_iters is None:
+            self.validate_after_iters = len(train_loader.dataset)
+        if self.log_after_iters is None:
+            self.log_after_iters = 1
+        train_iterator = iter(train_loader)
 
         for i in tqdm(range(self.max_num_iterations)):
-            train_iterator = iter(train_loader)
             try:
                 batch = next(train_iterator)
                 input, target, weight = self._split_training_batch(batch)
@@ -188,6 +192,9 @@ class UNet3DTrainer:
 
                 # save checkpoint
                 self._save_checkpoint(is_best)
+                
+                self._log_params()
+                #self._log_images(input, target, output)
 
             if self.num_iterations % self.log_after_iters == 0:
                 # if model contains final_activation layer for normalizing logits apply it, otherwise both
@@ -203,8 +210,6 @@ class UNet3DTrainer:
                 self.logger.info(
                     f'Training stats. Loss: {train_losses.avg}. Evaluation score: {train_eval_scores.avg}')
                 self._log_stats('train', train_losses.avg, train_eval_scores.avg)
-                self._log_params()
-                self._log_images(input, target, output)
 
             self.num_iterations += 1
             
@@ -214,15 +219,18 @@ class UNet3DTrainer:
     def validate(self, val_loader):
         self.logger.info('Validating...')
 
-        val_losses = utils.RunningAverage()
-        val_scores = utils.RunningAverage()
+        val_losses = RunningAverage()
+        val_scores = RunningAverage()
 
         try:
             # set the model in evaluation mode; final_activation doesn't need to be called explicitly
             self.model.eval()
+            if self.validate_iters is None:
+                self.validate_iters = len(val_loader.dataset)
+            val_iterator = iter(val_loader)
+            
             with torch.no_grad():
                 for i in tqdm(range(self.validate_iters)):
-                    val_iterator = iter(val_loader)
                     try:
                         batch = next(val_iterator)
                         input, target, weight = self._split_training_batch(batch)
@@ -284,7 +292,7 @@ class UNet3DTrainer:
         return is_best
 
     def _save_checkpoint(self, is_best):
-        utils.save_checkpoint({
+        save_checkpoint({
             'epoch': self.num_epoch + 1,
             'num_iterations': self.num_iterations,
             'model_state_dict': self.model.state_dict(),
@@ -351,7 +359,7 @@ class UNet3DTrainer:
                     img = batch[batch_idx, channel_idx, slice_idx, ...]
                     tagged_images.append((tag, self._normalize_img(img)))
         else:
-            # batch has no channel dim: NDHW
+            # batch has no channel or dim: NDHW
             slice_idx = batch.shape[1] // 2  # get the middle slice
             for batch_idx in range(batch.shape[0]):
                 tag = tag_template.format(name, batch_idx, 0, slice_idx)

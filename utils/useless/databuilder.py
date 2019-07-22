@@ -109,82 +109,131 @@ class SliceBuilder:
         if j + k < i:
             yield i - k
 
-class NiftiDataset(Dataset):
-    def __init__(self, file_path, patch_shape, stride_shape, phase, label_path = None, clip_val = None, transformer_config = None, slice_builder_cls = SliceBuilder):
+class RandomSliceBuilder:
+    def __init__(self, data_shape, patch_shape, num_slicers = 1):
+        # Slice builder for 3D (DxHxW) or 4D (CxDxHxW) data
+        if len(data_shape) == 4:
+            self._channels = data_shape[0]
+        elif len(data_shape) == 3:
+            self._channels = 1
+        else:
+            raise ValueError(f"Unsupported data dimensions {data_shape}")
+        self._slices = self._build_slices(data_shape, patch_shape, num_slicers)
+    @property
+    def slices(self):
+        return self._slices
+    @property
+    def channel(self):
+        return self._channels
+    @staticmethod
+    def _build_slices(data_shape, patch_shape, num_slicers):
+        """Generate num_slicers random patch slices for data with a certain
+        Returns:
+            list of slices, i.e.
+            [(slice, slice, slice, slice), ...] if len(shape) == 4
+            [(slice, slice, slice), ...] if len(shape) == 3
+        """
+
+        if len(data_shape) == 4:
+            slices = [(slice(0, data_shape[0]),)] * num_slicers
+            skip = 1
+        else:
+            slices = [()] * num_slicers
+            skip = 0
+
+        if len(patch_shape) == 2:
+            s = np.random.randint(0, data_shape[skip], size = num_slicers)
+            for j in range(num_slicers):
+                slices[j] = slices[j] + (s[j],)
+
+        for i in range(len(patch_shape)):
+            s_r = data_shape[i + skip] - patch_shape[i]
+            assert s_r >= 0, 'Sample size has to be bigger than the patch size'
+            s = np.random.randint(0, s_r+1, size = num_slicers)
+            for j in range(num_slicers):
+                slices[j] = slices[j] + (slice(s[j], s[j] + patch_shape[i]),)
+        return slices
+    
+    def _slicers_for_labels(self):
+        if self._channels > 1:
+            return [x[1:] for x in self._slices]
+        else:
+            return self._slices            
+            
+class TrainDataset(Dataset):
+    def __init__(self, file_path, patch_shape, phase, label_path, clip_val = None, transformer_config = None, slice_builder_cls = RandomSliceBuilder):
         """
         :param file_path: path to nifti subject data
-        :param patch_shape: the shape of the patch DxHxW
-        :param stride_shape: the shape of the stride DxHxW
-        :param phase: 'train' for training, 'val' for validation, 'test' for testing; data augmentation is performed
-            only during the 'train' phase
-        :param label_path: tag of nifti label data
+        :param patch_shape: the shape of the patch DxHxW or HxW for each slice
+        :param phase: 'train' for training, 'val' for validation; data augmentation is performed only during training
+        :param label_path: path to nifti label data
         :param clip_value: clip value within a range
         :param transformer_config: data augmentation configuration
         :param slice_builder_cls: slice builder tool
         """
-        assert phase in ['train', 'val', 'test']
-        self.phase = phase
+        assert phase in ['train', 'val']
+        self. phase = phase
+        self.clip_val = clip_val
+        self.patch_shape = patch_shape
+        self.transformer_config = transformer_config
+
+        assert isinstance(file_path, list)
+        assert isinstance(label_path, list)
+        assert len(file_path) == len(label_path)
+
         self.file_path = file_path
-
-        # load nifti image data
-        assert os.path.exists(file_path)
-        niftiimg = nib.load(file_path)
-        self.raw = np.transpose(niftiimg.get_fdata())
-        self.affine = niftiimg.affine
-
-        if clip_val is not None:
-            self.raw[self.raw > clip_val[1]] = clip_val[1]
-            self.raw[self.raw < clip_val[0]] = clip_val[0]
-
-        mean, std = self._calculate_mean_std(self.raw)
-        self.transformer = transforms.get_transformer(transformer_config, phase, mean=mean, std=std, clip_val=clip_val)
-        self.raw_transform = self.transformer.raw_transform()
-
-        if phase != 'test':
-            assert os.path.exists(label_path)
-            niftiseg = nib.load(label_path)
-            self.label = np.transpose(niftiseg.get_fdata())
-            self.label_transform = self.transformer.label_transform()
-            self._check_dimensionality(self.raw, self.label)
-        else:
-            self.label = None
-
-        # build slice indices for raw and label data sets
-        slice_builder = slice_builder_cls(self.raw, patch_shape, stride_shape, self.label)
-        self.raw_slices = slice_builder.raw_slices
-        self.label_slices = slice_builder.label_slices
-
-        self.patch_count = len(self.raw_slices)
+        self.label_path = label_path
+        self.slice_builder_cls = slice_builder_cls
 
     def __getitem__(self, idx):
         if idx >= len(self):
             raise StopIteration
+        
+        # load nifti image data
+        assert os.path.exists(self.file_path[idx])
+        niftiimg = nib.load(self.file_path[idx])
+        raw = np.transpose(niftiimg.get_fdata())
 
-        # get the slice for a given index 'idx'
-        raw_idx = self.raw_slices[idx]
+        if self.clip_val is not None:
+            raw[raw > self.clip_val[1]] = self.clip_val[1]
+            raw[raw < self.clip_val[0]] = self.clip_val[0]
 
-        # get the raw data patch for a given slice
-        raw_transformed = self._transform_datasets(self.raw, raw_idx, self.raw_transform)
-
-        if self.phase == 'test':
-            # just return the transformed raw data
-            return raw_transformed
+        if self.transformer_config is not None:
+            mean, std = self._calculate_mean_std(raw)
+            transformer = transforms.get_transformer(self.transformer_config, self.phase, mean=mean, std=std, clip_val=self.clip_val)
+            raw_transform = transformer.raw_transform()
         else:
-            # get the slice for a given index 'idx'
-            label_idx = self.label_slices[idx]
-            label_transformed = self._transform_datasets(self.label, label_idx, self.label_transform)
-            # return the transformed raw and label data
-            return raw_transformed, label_transformed
+            raw_transform = None
+        slice_builder = self.slice_builder_cls(data_shape = raw.shape, patch_shape = self.patch_shape, num_slicers = 1)
+        raw_slices = slice_builder.slices
+        raw_transformed = self._transform_datasets(raw, raw_slices[0], raw_transform)
 
+        assert os.path.exists(self.label_path[idx])
+        niftiseg = nib.load(self.label_path[idx])
+        label = np.transpose(niftiseg.get_fdata())
+        self._check_dimensionality(raw, label)
+
+        if self.transformer_config is not None:
+            label_transform = transformer.label_transform()
+        else:
+            label_transform = None
+
+        label_slices = slice_builder._slicers_for_labels()
+        label_transformed = self._transform_datasets(label, label_slices[0], label_transform)
+        return raw_transformed, label_transformed
+    
     def __len__(self):
-        return self.patch_count
+        return len(self.file_path)
 
     @staticmethod
     def _transform_datasets(dataset, idx, transformer):
         transformed_datasets = []
         # get the data and apply the transformer
         data = np.squeeze(dataset[idx])
-        transformed_data = transformer(data)
+        if transformer is None:
+            transformed_data = data
+        else:
+            transformed_data = transformer(data)
         transformed_datasets.append(transformed_data)
 
         # if transformed_datasets is a singleton list return the first element only
@@ -245,48 +294,46 @@ def get_train_loaders(config):
 
     # get train/validation patch size and stride
     train_patch = tuple(loaders_config['train_patch'])
-    train_stride = tuple(loaders_config['train_stride'])
     val_patch = tuple(loaders_config['val_patch'])
-    val_stride = tuple(loaders_config['val_stride'])
     # get clip value
     clip_val = tuple(loaders_config['clip_val'])
 
-    slice_builder_str = loaders_config.get('slice_builder', 'SliceBuilder')
+    slice_builder_str = loaders_config.get('slice_builder', 'RandomSliceBuilder')
     logger.info(f'Slice builder class: {slice_builder_str}')
     slice_builder_cls = _get_slice_builder_cls(slice_builder_str)
 
     # create nifti backed training and validation dataset with data augmentation
-    train_datasets = []
     for train_path in train_paths:
         assert os.path.exists(train_path)
         try:
             logger.info(f'Loading training set from: {train_path}...')
+            file_path = []
+            label_path = []
             with open(train_path) as f:
                 for line in f:
-                    name, file_path, label_path = line.split()[0:3]
-                    logger.info(f'Create training dataset from: {name}...')
-                    train_dataset = NiftiDataset(file_path, train_patch, train_stride, phase = 'train',
-                                                 label_path = label_path, clip_val = clip_val,
-                                                 transformer_config = loaders_config['transformer'],
-                                                 slice_builder_cls = slice_builder_cls)
-                    train_datasets.append(train_dataset)
+                    _, fp, lp = line.split()[0:3]
+                    file_path.append(fp)
+                    label_path.append(lp)
+            train_datasets = TrainDataset(file_path = file_path, patch_shape = train_patch, phase = 'train',
+                                         label_path = label_path, clip_val = clip_val,
+                                         transformer_config = loaders_config['transformer'],
+                                         slice_builder_cls = slice_builder_cls)
         except Exception:
             logger.info(f'Skipping training set: {train_path}', exc_info=True)
 
-    val_datasets = []
     for val_path in val_paths:
         assert os.path.exists(val_path)
         try:
             logger.info(f'Loading validation set from: {val_path}...')
-            with open(val_path) as f:
+            with open(train_path) as f:
                 for line in f:
-                    name, file_path, label_path = line.split()[0:3]
-                    logger.info(f'Create validation dataset from: {name}...')
-                    val_dataset = NiftiDataset(file_path, val_patch, val_stride, phase = 'val',
-                                                 label_path = label_path, clip_val = clip_val,
-                                                 transformer_config = loaders_config['transformer'],
-                                                 slice_builder_cls = slice_builder_cls)
-                    val_datasets.append(val_dataset)
+                    _, fp, lp = line.split()[0:3]
+                    file_path.append(fp)
+                    label_path.append(lp)
+            val_datasets = TrainDataset(file_path = file_path, patch_shape = val_patch, phase = 'val',
+                                         label_path = label_path, clip_val = clip_val,
+                                         transformer_config = loaders_config['transformer'],
+                                         slice_builder_cls = slice_builder_cls)
         except Exception:
             logger.info(f'Skipping validation set: {val_path}', exc_info=True)
 
@@ -295,55 +342,6 @@ def get_train_loaders(config):
     logger.info(f'Number of workers for train/val datasets: {num_workers}')
     # when training with volumetric data use batch_size of 1 due to GPU memory constraints
     return {
-        'train': DataLoader(ConcatDataset(train_datasets), batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True),
-        'val': DataLoader(ConcatDataset(val_datasets), batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=True)
+        'train': DataLoader(train_datasets, batch_size=batch_size, shuffle=True, num_workers=num_workers),
+        'val': DataLoader(val_datasets, batch_size=batch_size, shuffle=True, num_workers=num_workers)
     }
-
-
-def get_test_loaders(config):
-    """
-    Returns a list of DataLoader, one per each test file.
-
-    :param config: a top level configuration object containing the 'datasets' key
-    :return: generator of DataLoader objects
-    """
-
-    def my_collate(batch):
-        error_msg = "batch must contain tensors or slice; found {}"
-        if isinstance(batch[0], torch.Tensor):
-            return torch.stack(batch, 0)
-        elif isinstance(batch[0], slice):
-            return batch[0]
-        elif isinstance(batch[0], collections.Sequence):
-            transposed = zip(*batch)
-            return [my_collate(samples) for samples in transposed]
-
-        raise TypeError((error_msg.format(type(batch[0]))))
-
-    logger = get_logger('TestDataset')
-
-    assert 'loaders' in config, 'Could not find data loaders configuration'
-    loaders_config = config['loaders']
-
-    # get test files
-    test_paths = loaders_config['test_path']
-    assert isinstance(test_paths, list)
-    # get test patch size and stride
-    test_patch = tuple(loaders_config['test_patch'])
-    test_stride = tuple(loaders_config['test_stride'])
-    # get clip value
-    clip_val = tuple(loaders_config['clip_val'])
-    num_workers = loaders_config.get('num_workers', 1)
-
-    for test_path in test_paths:
-        assert os.path.exists(test_path)
-        try:
-            logger.info(f'Loading testing set from: {test_path}...')
-            with open(test_path) as f:
-                for line in f:
-                    name, file_path = line.split()[0:2]
-                    logger.info(f'Create testing dataset from: {name}...')
-                    test_dataset = NiftiDataset(file_path, test_patch, test_stride, phase = 'test', clip_val = clip_val)                    # use generator in order to create data loaders lazily one by one
-                    yield DataLoader(test_dataset, batch_size=1, num_workers=num_workers, collate_fn=my_collate)
-        except Exception:
-            logger.info(f'Skipping testing set: {test_path}', exc_info=True)

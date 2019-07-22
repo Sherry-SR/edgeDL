@@ -298,8 +298,6 @@ def expand_as_one_hot(input, C, ignore_index=None):
     :param ignore_index: ignore index to be kept during the expansion
     :return: 5D output image (NxCxDxHxW)
     """
-    assert input.dim() == 4
-
     shape = input.size()
     shape = list(shape)
     shape.insert(1, C)

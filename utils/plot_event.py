@@ -21,6 +21,6 @@ def parse_events_file(path: str) -> pd.DataFrame:
     return metrics_df
 
 
-dataset = parse_events_file(path = './checkpoints/pelvis/unet3d/logs/events.out.tfevents.1563368101.SH-IDC1-10-5-38-150')
+dataset = parse_events_file(path = './checkpoints/pelvis/unet3d/logs/events.out.tfevents.1563438177.SH-IDC1-10-5-38-150')
 dataset.plot()
 plt.show()

@@ -31,19 +31,19 @@ trainer:
   # max number of epochs
   epochs: 50
   # max number of iterations
-  iters: 1000
+  iters: 10000
   # model with higher eval score is considered better
   eval_score_higher_is_better: True
 # optimizer configuration
 optimizer:
   # initial learning rate
-  learning_rate: 0.001
+  learning_rate: 0.0001
   # weight decay
   weight_decay: 0.0001
 # loss function configuration
 loss:
   # loss function to be used during training
-  name: CrossEntropyLoss
+  name: DiceLoss
   # A manual rescaling weight given to each class.
   loss_weight: null
   # a target value that is ignored and does not contribute to the input gradient

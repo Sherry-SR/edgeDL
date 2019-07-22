@@ -34,9 +34,8 @@ class DiceCoefficient:
         :return: Soft Dice Coefficient averaged over all channels/classes
         """
         # Average across channels in order to get the final score
-        assert input.dim() == 5
         n_classes = input.size()[1]
-        if target.dim() == 4:
+        if target.dim() < input.dim():
             target = expand_as_one_hot(target, C=n_classes, ignore_index=self.ignore_index)
         return torch.mean(compute_per_channel_dice(input, target, epsilon=self.epsilon, ignore_index=self.ignore_index))
 
@@ -540,7 +539,7 @@ def get_evaluation_metric(config):
     """
 
     def _metric_class(class_name):
-        m = importlib.import_module('models.unet3d.metrics')
+        m = importlib.import_module('models.casenet2d.metrics')
         clazz = getattr(m, class_name)
         return clazz
 

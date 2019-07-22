@@ -57,14 +57,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 """
 
 # ResNet implementation kindly borrow from pytorch-vision and modified to match the original casenet caffe implementation.
+import importlib
 
 import torch.nn as nn
 import torch
 import math
 from torch.autograd import Variable
 import numpy as np
-
-__all__ = ['casenet101']
 
 BatchNorm = nn.BatchNorm2d
 
@@ -220,12 +219,12 @@ def get_upsample_filter(size):
 
 class ResNet(nn.Module):
 
-    def __init__(self, block, layers, nclasses=20):
+    def __init__(self, in_channels, out_channels, layers, final_sigmoid, block = Bottleneck, **kwargs):
 
         self.inplanes = 64
         super(ResNet, self).__init__()
-        self._nclasses = nclasses
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=1, padding=3,
+        self._nclasses = out_channels
+        self.conv1 = nn.Conv2d(in_channels, 64, kernel_size=7, stride=1, padding=3,
                                bias=False)
 
         self.bn1 = BatchNorm(64)
@@ -247,28 +246,19 @@ class ResNet(nn.Module):
 
         self.use_pytorch_upsample = False
 
-        # The original casenet implementation has padding when upsampling cityscapes that are not used for SBD.
-        # Leaving like this for now such that it is clear and it matches the original implementation (for fair comparison)
-
-        if nclasses == 19:
-            print('Assuming Cityscapes CASENET')
-            self.score_edge_side1 = SideOutput_fn(64)
-            self.score_edge_side2 = SideOutput_fn(256, kernel_sz=4, stride=2, upconv_pad=1, do_crops=False)
-            self.score_edge_side3 = SideOutput_fn(512, kernel_sz=8, stride=4, upconv_pad=2, do_crops=False)
-            self.score_cls_side5 = Res5Output_fn(kernel_sz=16, stride=8, nclasses=self._nclasses, upconv_pad=4,
-                                                 do_crops=False)
-        else:
-            print('Assuming Classical SBD CASENET')
-            self.score_edge_side1 = SideOutput_fn(64)
-            self.score_edge_side2 = SideOutput_fn(256, kernel_sz=4, stride=2)
-            self.score_edge_side3 = SideOutput_fn(512, kernel_sz=8, stride=4)
-            self.score_cls_side5 = Res5Output_fn(kernel_sz=16, stride=8, nclasses=self._nclasses)
+        self.score_edge_side1 = SideOutput_fn(64)
+        self.score_edge_side2 = SideOutput_fn(256, kernel_sz=4, stride=2)
+        self.score_edge_side3 = SideOutput_fn(512, kernel_sz=8, stride=4)
+        self.score_cls_side5 = Res5Output_fn(kernel_sz=16, stride=8, nclasses=self._nclasses)
 
         num_classes = self._nclasses
         self.ce_fusion = nn.Conv2d(4 * num_classes, num_classes, groups=num_classes, kernel_size=1, stride=1, padding=0,
                                    bias=True)
 
-        self.sigmoid = nn.Sigmoid()
+        if final_sigmoid:
+            self.final_activation = nn.Sigmoid()
+        else:
+            self.final_activation = nn.Softmax(dim=1)
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -330,7 +320,6 @@ class ResNet(nn.Module):
         return out_tensor
 
     def forward(self, x, normals_mask=None):
-        assert x.shape[1] == 3, 'N,3,H,W BGR Image?'
         input_data = x
 
         # res1
@@ -358,11 +347,12 @@ class ResNet(nn.Module):
 
         # combine outputs and classify
         sliced_cat = self._sliced_concat(side_1, side_2, side_3, side_5, self._nclasses)
-        acts = self.ce_fusion(sliced_cat)
+        out = self.ce_fusion(sliced_cat)
 
-        normals = None
+        if not self.training:
+            out = self.final_activation(out)
 
-        return [acts, side_5, normals, (side_1, side_2, side_3)]  # sigmoid can be taken later
+        return out
 
 
 class BasicBlock(nn.Module):
@@ -396,20 +386,18 @@ class BasicBlock(nn.Module):
 
         return out
 
-
-def casenet101(pretrained=False, **kwargs):
-    """Constructs a ResNet-101 model.
-
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-    """
-    model = ResNet(Bottleneck, [3, 4, 23, 3], **kwargs)
-    if pretrained:
-        raise NotImplementedError()
-    return model
-
-
 def conv3x3(in_planes, out_planes, stride=1):
     "3x3 convolution with padding"
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
                      padding=1, bias=False)
+
+def get_model(config):
+    def _model_class(class_name):
+        m = importlib.import_module('models.casenet2d.model')
+        clazz = getattr(m, class_name)
+        return clazz
+
+    assert 'model' in config, 'Could not find model configuration'
+    model_config = config['model']
+    model_class = _model_class(model_config['name'])
+    return model_class(**model_config)
