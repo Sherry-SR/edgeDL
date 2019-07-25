@@ -10,8 +10,7 @@ from models.unet3d.losses import get_loss_criterion
 from models.unet3d.metrics import get_evaluation_metric
 from models.unet3d.model import get_model
 from utils.trainer import NNTrainer
-from utils.helper import get_logger
-from utils.helper import get_number_of_learnable_parameters
+from utils.helper import get_logger, get_number_of_learnable_parameters
 
 from utils.databuilder import get_train_loaders
 

@@ -226,16 +226,16 @@ class SegToEdge:
             k = np.zeros((3,3), dtype = int)
             k[1] = 1
             k[:, 1] = 1
-        edges = []
+        edges = np.zeros(m.shape, dtype = self.dtype)
         # add channel dimension
         for i in range(len(label_val)):
+            if label_val[i] == 0:
+                continue
             mask = m == label_val[i]
-            mask = binary_dilation(mask, k, iterations = self.radius)
             mask = mask.astype(np.bool)
-            edge = binary_dilation(~mask, k, iterations = self.radius) & mask
-            edges.append(edge)
+            edges = edges + label_val[i] * (binary_dilation(~mask, k, iterations = self.radius) & mask)
 
-        return np.array(edges)
+        return edges
 
 class ToTensor:
     """

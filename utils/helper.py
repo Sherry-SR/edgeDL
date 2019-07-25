@@ -141,12 +141,18 @@ def unpad(probs, index, shape, pad_width=8):
     i_c, i_z, i_y, i_x = index
     p_c = slice(0, probs.shape[0])
 
-    p_z, i_z = _new_slices(i_z, D)
     p_y, i_y = _new_slices(i_y, H)
     p_x, i_x = _new_slices(i_x, W)
 
+    if i_z.stop - i_z.start == 1:
+        probs = np.expand_dims(probs, axis = 1)
+        p_z = slice(0, 1)
+    else:
+        p_z, i_z = _new_slices(i_z, D)
+
     probs_index = (p_c, p_z, p_y, p_x)
     index = (i_c, i_z, i_y, i_x)
+
     return probs[probs_index], index
 
 

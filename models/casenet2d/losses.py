@@ -5,7 +5,7 @@ from torch.autograd import Variable
 from torch.nn import MSELoss, SmoothL1Loss, L1Loss
 
 
-def compute_per_channel_dice(input, target, epsilon=1e-5, ignore_index=None, weight=None):
+def compute_per_channel_dice(input, target, epsilon=1e-10, ignore_index=None, weight=None):
     # assumes that input is a normalized probability
 
     # input and target shapes must match
@@ -37,7 +37,7 @@ class DiceLoss(nn.Module):
     Additionally allows per-class weights to be provided.
     """
 
-    def __init__(self, epsilon=1e-5, weight=None, ignore_index=None, sigmoid_normalization=True,
+    def __init__(self, epsilon=1e-10, weight=None, ignore_index=None, sigmoid_normalization=True,
                  skip_last_target=False):
         super(DiceLoss, self).__init__()
         self.epsilon = epsilon
@@ -67,7 +67,7 @@ class DiceLoss(nn.Module):
         if self.skip_last_target:
             target = target[:, :-1, ...]
 
-        if target.dim() == 4:
+        if target.dim() < input.dim():
             target = expand_as_one_hot(target, C=n_classes, ignore_index=self.ignore_index)
             
         per_channel_dice = compute_per_channel_dice(input, target, epsilon=self.epsilon, ignore_index=self.ignore_index,
@@ -80,7 +80,7 @@ class GeneralizedDiceLoss(nn.Module):
     """Computes Generalized Dice Loss (GDL) as described in https://arxiv.org/pdf/1707.03237.pdf
     """
 
-    def __init__(self, epsilon=1e-5, weight=None, ignore_index=None, sigmoid_normalization=True):
+    def __init__(self, epsilon=1e-10, weight=None, ignore_index=None, sigmoid_normalization=True):
         super(GeneralizedDiceLoss, self).__init__()
         self.epsilon = epsilon
         self.register_buffer('weight', weight)
@@ -178,6 +178,34 @@ class BCELossWrapper:
 
         return self.loss_criterion(masked_input, masked_target)
 
+class STEALEdgeLoss(nn.Module):
+
+    def __init__(self, weight=None, ignore_index= None):
+        super(STEALEdgeLoss, self).__init__()
+        self.register_buffer('weight', weight)
+        self.ignore_index = ignore_index
+
+    def forward(self, input, target):
+        """
+        Computes STEAL edge loss
+        :param input: 4D input tensor (NCHW)
+        :param target: 3D target tensor (NHW)
+        :return: STEALEdgeLoss
+        """
+        n_classes = input.size()[1]
+        if target.dim() < input.dim():
+            target = expand_as_one_hot(target, C=n_classes, ignore_index=self.ignore_index)
+        weight_sum = target.sum(dim=1).sum(dim=1).sum(dim=1)
+        edge_weight = weight_sum / (target.size()[2] * target.size()[3])
+        edge_weight = edge_weight.unsqueeze(1).unsqueeze(2).unsqueeze(3)
+        non_edge_weight = 1 - edge_weight
+
+        one_sigmoid_out = torch.sigmoid(input)
+        zero_sigmoid_out = 1 - one_sigmoid_out
+
+        loss = - non_edge_weight * target * torch.log(one_sigmoid_out.clamp(min = 1e-10)) -  edge_weight * (1 - target) * torch.log(zero_sigmoid_out.clamp(min = 1e-10))
+
+        return (loss.mean(dim = 0)).sum()
 
 class PixelWiseCrossEntropyLoss(nn.Module):
     def __init__(self, class_weights=None, ignore_index=None):
@@ -300,11 +328,11 @@ def expand_as_one_hot(input, C, ignore_index=None):
     """
     shape = input.size()
     shape = list(shape)
-    shape.insert(1, C)
+    shape.insert(1, C+1)
     shape = tuple(shape)
 
     # expand the input tensor to Nx1xDxHxW
-    src = input.unsqueeze(0)
+    src = input.unsqueeze(1)
 
     if ignore_index is not None:
         # create ignore_index mask for the result
@@ -320,12 +348,12 @@ def expand_as_one_hot(input, C, ignore_index=None):
         return result
     else:
         # scatter to get the one-hot tensor
-        return torch.zeros(shape).to(input.device).scatter_(1, src, 1)
+        return torch.zeros(shape).to(input.device).scatter_(1, src, 1)[:, 1:, :, :]
 
 
 SUPPORTED_LOSSES = ['BCEWithLogitsLoss', 'CrossEntropyLoss', 'WeightedCrossEntropyLoss', 'PixelWiseCrossEntropyLoss',
                     'GeneralizedDiceLoss', 'DiceLoss', 'TagsAngularLoss', 'MSEWithLogitsLoss', 'MSELoss',
-                    'SmoothL1Loss', 'L1Loss']
+                    'SmoothL1Loss', 'L1Loss', 'STEALEdgeLoss']
 
 
 def get_loss_criterion(config):
@@ -351,6 +379,8 @@ def get_loss_criterion(config):
             return nn.BCEWithLogitsLoss()
         else:
             return BCELossWrapper(nn.BCEWithLogitsLoss(), ignore_index=ignore_index, skip_last_target=skip_last_target)
+    elif name == 'STEALEdgeLoss':
+        return STEALEdgeLoss(weight=weight, ignore_index=ignore_index)
     elif name == 'CrossEntropyLoss':
         if ignore_index is None:
             ignore_index = -100  # use the default 'ignore_index' as defined in the CrossEntropyLoss

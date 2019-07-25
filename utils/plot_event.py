@@ -13,14 +13,20 @@ def is_interesting_tag(tag):
 def parse_events_file(path: str) -> pd.DataFrame:
     metrics = defaultdict(list)
     for e in tf.train.summary_iterator(path):
+        step = e.step
         for v in e.summary.value:
-
             if isinstance(v.simple_value, float) and is_interesting_tag(v.tag):
-                metrics[v.tag].append(v.simple_value)
+                for k in metrics.keys():
+                    if len(metrics[k]) < step :
+                        metrics[k].append(None)
+                if (metrics.get(v.tag) is None):
+                    metrics[v.tag] = [None] * step
+                metrics[v.tag][step - 1] = v.simple_value
     metrics_df = pd.DataFrame({k: v for k,v in metrics.items() if len(v) > 1})
     return metrics_df
 
 
-dataset = parse_events_file(path = './checkpoints/pelvis/unet3d/logs/events.out.tfevents.1563438177.SH-IDC1-10-5-38-150')
-dataset.plot()
+dataset = parse_events_file(path = './checkpoints/pelvis/casenet2d/logs/events.out.tfevents.1563791350.SH-IDC1-10-5-38-155')
+dataset[['train_eval_score_avg', 'val_eval_score_avg']].interpolate().plot()
+dataset[['train_loss_avg', 'val_loss_avg']].interpolate().plot()
 plt.show()

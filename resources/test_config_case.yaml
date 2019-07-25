@@ -1,32 +1,26 @@
 # path to the checkpoint file containing the model
-model_path: /mnt/lustre/shenrui/project/edgeDL/saved_weights/pelvis/xxx.pytorch
+model_path: /mnt/lustre/shenrui/project/edgeDL/saved_weights/pelvis/casenet2d/last_checkpoint.pytorch
 # path to the folder of the predictions
 save_path: /mnt/lustre/shenrui/data/pelvis_predict
 prediction_channel: null
 # model configuration
 model:
   # model class
-  name: UNet3D
+  name: ResNet
   # number of input channels to the model
   in_channels: 1
-  # number of output channels
+  # number of output classes
   out_channels: 6
-  # determines the order of operators in a single layer (crg - Conv3d+ReLU+GroupNorm)
-  layer_order: crg
-  # feature maps scale factor
-  f_maps: 32
-  # basic module
-  basic_module: DoubleConv
-  # number of groups in the groupnorm
-  num_groups: 8
+  # set layers
+  layers: [3, 4, 23, 3]
   # apply element-wise nn.Sigmoid after the final 1x1 convolution, otherwise apply nn.Softmax
-  final_sigmoid: false
+  final_sigmoid: False
 # specify the test datasets
 loaders:
   # test patch size given to the network (adapt to fit in your GPU mem)
-  test_patch: [64, 256, 256]
+  test_patch: [350, 350]
   # test stride between patches (make sure the the patches overlap in order to get smoother prediction maps)
-  test_stride: [50, 100, 100]
+  test_stride: [100, 100]
   # clip value within the range
   clip_val: [-1000, 2000]
   # how many subprocesses to use for data loading

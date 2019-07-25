@@ -7,7 +7,7 @@ model:
   # number of input channels to the model
   in_channels: 1
   # number of output classes
-  out_channels: 6
+  out_channels: 5
   # set layers
   layers: [3, 4, 23, 3]
   # apply element-wise nn.Sigmoid after the final 1x1 convolution, otherwise apply nn.Softmax
@@ -19,36 +19,38 @@ trainer:
   # path to latest checkpoint; if provided the training will be resumed from that checkpoint
   resume: null
   # how many iterations between validations
-  validate_after_iters: 20
+  validate_after_iters: 300
   # how many iterations between tensorboard logging
-  log_after_iters: 20
+  log_after_iters: 1
   # how many iterations evaluated in validations
   validate_iters: null
   # max number of epochs
   epochs: 100
   # max number of iterations
-  iters: 20000
-  # model with higher eval score is considered better
-  eval_score_higher_is_better: True
+  iters: 30000
+  # model with lower eval score is considered better
+  eval_score_higher_is_better: False
 # optimizer configuration
 optimizer:
   # initial learning rate
-  learning_rate: 0.00001
+  learning_rate: 0.0001
   # weight decay
-  weight_decay: 0.0001
+  weight_decay: 0.001
 # loss function configuration
 loss:
   # loss function to be used during training
-  name: CrossEntropyLoss
+  name: STEALEdgeLoss
   # A manual rescaling weight given to each class.
   loss_weight: null
   # a target value that is ignored and does not contribute to the input gradient
   ignore_index: null
 # evaluation metric configuration
 eval_metric:
-  name: DiceCoefficient
+  name: STEALEdgeLoss
   # a target label that is ignored during metric evaluation
   ignore_index: null
+  # number of points in PR curve
+  nthresh: 9
 lr_scheduler:
   name: MultiStepLR
   milestones: [10, 30, 60]
@@ -58,11 +60,11 @@ loaders:
   # train patch size given to the network (adapt to fit in your GPU mem, generally the bigger patch the better)
   train_patch: [350, 350]
   # train stride between patches
-  train_stride: [50, 50]
+  train_stride: [100, 100]
   # validation patch (can be bigger than train patch since there is no backprop)
   val_patch: [350, 350]
   # validation stride (validation patches doesn't need to overlap)
-  val_stride: [50, 50]
+  val_stride: [350, 350]
   # clip value within the range
   clip_val: [-1000, 2000]
   # paths to the training datasets
@@ -72,9 +74,9 @@ loaders:
   val_path:
     - '/home/SENSETIME/shenrui/data/pelvis_resampled/dataset_val_temp.txt'
   # how many subprocesses to use for data loading
-  num_workers: 1
+  num_workers: 0
   # batch size in training process
-  batch_size: 100
+  batch_size: 2
   # data transformations/augmentations
   transformer:
     train:

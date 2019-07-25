@@ -8,9 +8,9 @@ from skimage import measure
 from models.casenet2d.losses import compute_per_channel_dice, expand_as_one_hot
 from utils.helper import get_logger, adapted_rand
 
-LOGGER = get_logger('EvalMetric')
+logger = get_logger('EvalMetric')
 
-SUPPORTED_METRICS = ['dice', 'iou', 'boundary_ap', 'dt_ap', 'quantized_dt_ap', 'angle', 'inverse_angular']
+SUPPORTED_METRICS = ['DiceCoefficient', 'MeanIoU', 'PrecisionStats', 'STEALEdgeLoss']
 
 
 class DiceCoefficient:
@@ -22,7 +22,7 @@ class DiceCoefficient:
     DO NOT USE this metric when training with DiceLoss, otherwise the results will be biased towards the loss.
     """
 
-    def __init__(self, skip_channels=(), epsilon=1e-5, ignore_index=None, **kwargs):
+    def __init__(self, skip_channels=(), epsilon=1e-10, ignore_index=None, **kwargs):
         self.epsilon = epsilon
         self.ignore_index = ignore_index
         self.skip_channels = skip_channels
@@ -124,412 +124,88 @@ class MeanIoU:
         """
         return torch.sum(prediction & target).float() / (torch.sum(prediction | target).float() + eps)
 
-
-class AdaptedRandError:
-    def __init__(self, all_stats=False, **kwargs):
-        self.all_stats = all_stats
-
-    def __call__(self, input, target):
-        return adapted_rand(input, target, all_stats=self.all_stats)
-
-
-class BoundaryAdaptedRandError:
-    def __init__(self, threshold=0.4, use_last_target=False, use_first_input=False, invert_pmaps=True, **kwargs):
-        self.threshold = threshold
-        self.use_last_target = use_last_target
-        self.use_first_input = use_first_input
-        self.invert_pmaps = invert_pmaps
-
-    def __call__(self, input, target):
-        if isinstance(input, torch.Tensor):
-            assert input.dim() == 5
-            # convert to numpy array
-            input = input[0].detach().cpu().numpy()  # 4D
-
-        if isinstance(target, torch.Tensor):
-            if not self.use_last_target:
-                assert target.dim() == 4
-                # convert to numpy array
-                target = target[0].detach().cpu().numpy()  # 3D
-            else:
-                # if use_last_target == True the target must be 5D (NxCxDxHxW)
-                assert target.dim() == 5
-                target = target[0, -1].detach().cpu().numpy()  # 3D
-
-        if isinstance(input, np.ndarray):
-            assert input.ndim == 4
-
-        if isinstance(target, np.ndarray):
-            assert target.ndim == 3
-
-        if self.use_first_input:
-            # compute only on the first input channel
-            n_channels = 1
-        else:
-            n_channels = input.shape[0]
-
-        per_channel_arand = []
-        for c in range(n_channels):
-            predictions = input[c]
-            # threshold probability maps
-            predictions = predictions > self.threshold
-
-            if self.invert_pmaps:
-                # for connected component analysis we need to treat boundary signal as background
-                # assign 0-label to boundary mask
-                predictions = np.logical_not(predictions)
-
-            predictions = predictions.astype(np.uint8)
-            # run connected components on the predicted mask; consider only 1-connectivity
-            predicted = measure.label(predictions, background=0, connectivity=1)
-            # make sure that target is 'int' type as well
-            target = target.astype(np.int64)
-            # compute AdaptedRand error
-            arand = adapted_rand(predicted, target)
-            per_channel_arand.append(arand)
-
-        # get minimum AdaptedRand error across channels
-        min_arand, c_index = np.min(per_channel_arand), np.argmin(per_channel_arand)
-        LOGGER.info(f'Min AdaptedRand error: {min_arand}, channel: {c_index}')
-        return min_arand
-
-
-class _AbstractAP:
-    def __init__(self, iou_range=(0.5, 1.0), ignore_index=-1, min_instance_size=None):
-        self.iou_range = iou_range
-        self.ignore_index = ignore_index
-        self.min_instance_size = min_instance_size
-
-    def __call__(self, input, target):
-        raise NotImplementedError()
-
-    def _calculate_average_precision(self, predicted, target, target_instances):
-        recall, precision = self._roc_curve(predicted, target, target_instances)
-        recall.insert(0, 0.0)  # insert 0.0 at beginning of list
-        recall.append(1.0)  # insert 1.0 at end of list
-        precision.insert(0, 0.0)  # insert 0.0 at beginning of list
-        precision.append(0.0)  # insert 0.0 at end of list
-        # make the precision(recall) piece-wise constant and monotonically decreasing
-        # by iterating backwards starting from the last precision value (0.0)
-        # see: https://www.jeremyjordan.me/evaluating-image-segmentation-models/ e.g.
-        for i in range(len(precision) - 2, -1, -1):
-            precision[i] = max(precision[i], precision[i + 1])
-        # compute the area under precision recall curve by simple integration of piece-wise constant function
-        ap = 0.0
-        for i in range(1, len(recall)):
-            ap += ((recall[i] - recall[i - 1]) * precision[i])
-        return ap
-
-    def _roc_curve(self, predicted, target, target_instances):
-        ROC = []
-        predicted, predicted_instances = self._filter_instances(predicted)
-
-        # compute precision/recall curve points for various IoU values from a given range
-        for min_iou in np.arange(self.iou_range[0], self.iou_range[1], 0.1):
-            # initialize false negatives set
-            false_negatives = set(target_instances)
-            # initialize false positives set
-            false_positives = set(predicted_instances)
-            # initialize true positives set
-            true_positives = set()
-
-            for pred_label in predicted_instances:
-                target_label = self._find_overlapping_target(pred_label, predicted, target, min_iou)
-                if target_label is not None:
-                    # update TP, FP and FN
-                    if target_label == self.ignore_index:
-                        # ignore if 'ignore_index' is the biggest overlapping
-                        false_positives.discard(pred_label)
-                    else:
-                        true_positives.add(pred_label)
-                        false_positives.discard(pred_label)
-                        false_negatives.discard(target_label)
-
-            tp = len(true_positives)
-            fp = len(false_positives)
-            fn = len(false_negatives)
-
-            recall = tp / (tp + fn)
-            precision = tp / (tp + fp)
-            ROC.append((recall, precision))
-
-        # sort points by recall
-        ROC = np.array(sorted(ROC, key=lambda t: t[0]))
-        # return recall and precision values
-        return list(ROC[:, 0]), list(ROC[:, 1])
-
-    def _find_overlapping_target(self, predicted_label, predicted, target, min_iou):
-        """
-        Return ground truth label which overlaps by at least 'min_iou' with a given input label 'p_label'
-        or None if such ground truth label does not exist.
-        """
-        mask_predicted = predicted == predicted_label
-        overlapping_labels = target[mask_predicted]
-        labels, counts = np.unique(overlapping_labels, return_counts=True)
-        # retrieve the biggest overlapping label
-        target_label_ind = np.argmax(counts)
-        target_label = labels[target_label_ind]
-        # return target label if IoU greater than 'min_iou'; since we're starting from 0.5 IoU there might be
-        # only one target label that fulfill this criterion
-        mask_target = target == target_label
-        # return target_label if IoU > min_iou
-        if self._iou(mask_predicted, mask_target) > min_iou:
-            return target_label
-        return None
-
-    @staticmethod
-    def _iou(prediction, target):
-        """
-        Computes intersection over union
-        """
-        intersection = np.logical_and(prediction, target)
-        union = np.logical_or(prediction, target)
-        return np.sum(intersection) / np.sum(union)
-
-    def _filter_instances(self, input):
-        """
-        Filters instances smaller than 'min_instance_size' by overriding them with 'ignore_index'
-        :param input: input instance segmentation
-        :return: tuple: (instance segmentation with small instances filtered, set of unique labels without the 'ignore_index')
-        """
-        if self.min_instance_size is not None:
-            labels, counts = np.unique(input, return_counts=True)
-            for label, count in zip(labels, counts):
-                if count < self.min_instance_size:
-                    mask = input == label
-                    input[mask] = self.ignore_index
-
-        labels = set(np.unique(input))
-        labels.discard(self.ignore_index)
-        return input, labels
-
-    @staticmethod
-    def _dt_to_cc(distance_transform, threshold):
-        """
-        Threshold a given distance_transform and returns connected components.
-        :param distance_transform: 3D distance transform matrix
-        :param threshold: threshold energy level
-        :return: 3D segmentation volume
-        """
-        boundary = (distance_transform > threshold).astype(np.uint8)
-        return measure.label(boundary, background=0, connectivity=1)
-
-
-class StandardAveragePrecision(_AbstractAP):
-    def __init__(self, iou_range=(0.5, 1.0), ignore_index=-1, min_instance_size=None, **kwargs):
-        super().__init__(iou_range, ignore_index, min_instance_size)
-
-    def __call__(self, input, target):
-        assert isinstance(input, np.ndarray) and isinstance(target, np.ndarray)
-        assert input.ndim == target.ndim == 3
-
-        target, target_instances = self._filter_instances(target)
-
-        return self._calculate_average_precision(input, target, target_instances)
-
-
-class DistanceTransformAveragePrecision(_AbstractAP):
-    def __init__(self, threshold=0.1, **kwargs):
-        super().__init__()
-        self.threshold = threshold
-
-    def __call__(self, input, target):
-        if isinstance(input, torch.Tensor):
-            assert input.dim() == 5
-            # convert to numpy array
-            input = input[0, 0].detach().cpu().numpy()  # 3D distance transform
-
-        if isinstance(target, torch.Tensor):
-            assert target.dim() == 5
-            target = target[0, 0].detach().cpu().numpy()  # 3D distance transform
-
-        if isinstance(input, np.ndarray):
-            assert input.ndim == 3
-
-        if isinstance(target, np.ndarray):
-            assert target.ndim == 3
-
-        predicted_cc = self._dt_to_cc(input, self.threshold)
-        target_cc = self._dt_to_cc(target, self.threshold)
-
-        # get ground truth label set
-        target_cc, target_instances = self._filter_instances(target_cc)
-
-        return self._calculate_average_precision(predicted_cc, target_cc, target_instances)
-
-
-class QuantizedDistanceTransformAveragePrecision(_AbstractAP):
-    def __init__(self, threshold=0, **kwargs):
-        super().__init__()
-        self.threshold = threshold
-
-    def __call__(self, input, target):
-        if isinstance(input, torch.Tensor):
-            assert input.dim() == 5
-            # convert probability maps to label tensor
-            input = torch.argmax(input[0], dim=0)
-            # convert to numpy array
-            input = input.detach().cpu().numpy()  # 3D distance transform
-
-        if isinstance(target, torch.Tensor):
-            assert target.dim() == 4
-            target = target[0].detach().cpu().numpy()  # 3D distance transform
-
-        if isinstance(input, np.ndarray):
-            assert input.ndim == 3
-
-        if isinstance(target, np.ndarray):
-            assert target.ndim == 3
-
-        predicted_cc = self._dt_to_cc(input, self.threshold)
-        target_cc = self._dt_to_cc(target, self.threshold)
-
-        # get ground truth label set
-        target_cc, target_instances = self._filter_instances(target_cc)
-
-        return self._calculate_average_precision(predicted_cc, target_cc, target_instances)
-
-
-class BoundaryAveragePrecision(_AbstractAP):
+class PrecisionStats:
     """
-    Computes Average Precision given boundary prediction and ground truth instance segmentation.
+    Computes Average Precision, Recall, F score given prediction and ground truth instance segmentation.
     """
 
-    def __init__(self, threshold=0.4, iou_range=(0.5, 1.0), ignore_index=-1, min_instance_size=None,
-                 use_last_target=False, **kwargs):
+    def __init__(self, nthresh = 9, ignore_index = None, epsilon = 1e-10, **kwargs):
         """
-        :param threshold: probability value at which the input is going to be thresholded
-        :param iou_range: compute ROC curve for the the range of IoU values: range(min,max,0.05)
+        :param nthresh: number of points in PR curve
         :param ignore_index: label to be ignored during computation
-        :param min_instance_size: minimum size of the predicted instances to be considered
-        :param use_last_target: if True use the last target channel to compute AP
         """
-        super().__init__(ignore_index, min_instance_size, iou_range)
-        self.threshold = threshold
-        # always have well defined ignore_index
-        if ignore_index is None:
-            ignore_index = -1
-        self.iou_range = iou_range
+        self.threshold = np.linspace(1/(nthresh+1), 1 - 1/(nthresh+1), nthresh)
         self.ignore_index = ignore_index
-        self.min_instance_size = min_instance_size
-        self.use_last_target = use_last_target
+        self.epsilon = epsilon
 
     def __call__(self, input, target):
         """
-        :param input: 5D probability maps torch float tensor (NxCxDxHxW) / or 4D numpy.ndarray
-        :param target: 4D or 5D ground truth instance segmentation torch long tensor / or 3D numpy.ndarray
-        :return: highest average precision among channels
+        :param input: 4D probability maps torch float tensor (NxCxHxW)
+        :param target: 3D ground truth instance segmentation torch long tensor (NxHxW)
+        :return: average precision statistics among each channel
         """
-        if isinstance(input, torch.Tensor):
-            assert input.dim() == 5
-            # convert to numpy array
-            input = input[0].detach().cpu().numpy()  # 4D
+        n_classes = input.size()[1]
+        if target.dim() < input.dim():
+            target = expand_as_one_hot(target, C=n_classes, ignore_index=self.ignore_index)
+        input = input.detach().cpu().numpy()
+        target = target.detach().cpu().numpy()
 
-        if isinstance(target, torch.Tensor):
-            if not self.use_last_target:
-                assert target.dim() == 4
-                # convert to numpy array
-                target = target[0].detach().cpu().numpy()  # 3D
-            else:
-                # if use_last_target == True the target must be 5D (NxCxDxHxW)
-                assert target.dim() == 5
-                target = target[0, -1].detach().cpu().numpy()  # 3D
+        precisions = []
+        recalls = []
+        fms = []
+        for thresh in self.threshold:
+            prediction = input > thresh
+            tp = np.logical_and(prediction, target).sum(axis=2).sum(axis=2)
+            fp = np.logical_and(prediction, ~target).sum(axis=2).sum(axis=2)
+            fn = np.logical_and(~prediction, target).sum(axis=2).sum(axis=2)
 
-        if isinstance(input, np.ndarray):
-            assert input.ndim == 4
+            precision = tp / (tp + fp + self.epsilon)
+            recall = tp / (tp + fn + self.epsilon)
+            fm = 2 * precision * recall / (precision + recall + self.epsilon)
 
-        if isinstance(target, np.ndarray):
-            assert target.ndim == 3
+            bdryExist = (target.sum(axis=2).sum(axis=2)) > 0
 
-        # filter small instances from the target and get ground truth label set (without 'ignore_index')
-        target, target_instances = self._filter_instances(target)
+            precision[~bdryExist] = None
+            recall[~bdryExist] = None
+            fm[~bdryExist] = None
 
-        per_channel_ap = []
-        n_channels = input.shape[0]
-        for c in range(n_channels):
-            predictions = input[c]
-            # threshold probability maps
-            predictions = predictions > self.threshold
-            # for connected component analysis we need to treat boundary signal as background
-            # assign 0-label to boundary mask
-            predictions = np.logical_not(predictions).astype(np.uint8)
-            # run connected components on the predicted mask; consider only 1-connectivity
-            predicted = measure.label(predictions, background=0, connectivity=1)
-            ap = self._calculate_average_precision(predicted, target, target_instances)
-            per_channel_ap.append(ap)
-
+            precisions.append(precision)
+            recalls.append(recall)
+            fms.append(fm)
+        
+        AP = np.nanmax(np.nanmean(precisions, axis=1), axis=0)
+        AFM = np.nanmax(np.nanmean(fms, axis=1), axis=0)
         # get maximum average precision across channels
-        max_ap, c_index = np.max(per_channel_ap), np.argmax(per_channel_ap)
-        LOGGER.info(f'Max average precision: {max_ap}, channel: {c_index}')
-        return max_ap
+        logger.info(f'Max average precision: {AP}, Max average recall: {AFM}')
+        return precisions, recalls, fms
 
+class STEALEdgeLoss:
 
-class WithinAngleThreshold:
-    """
-    Returns the percentage of predicted directions which are more than 'angle_threshold' apart from the ground
-    truth directions. 'angle_threshold' is expected to be given in degrees not radians.
-    """
-
-    def __init__(self, angle_threshold, **kwargs):
-        self.threshold_radians = angle_threshold / 360 * np.pi
-
-    def __call__(self, inputs, targets):
-        assert isinstance(inputs, list)
-        if len(inputs) == 1:
-            targets = [targets]
-        assert len(inputs) == len(targets)
-
-        within_count = 0
-        total_count = 0
-        for input, target in zip(inputs, targets):
-            # normalize and multiply by the stability_coeff in order to prevent NaN results from torch.acos
-            stability_coeff = 0.999999
-            input = input / torch.norm(input, p=2, dim=1).detach().clamp(min=1e-8) * stability_coeff
-            target = target / torch.norm(target, p=2, dim=1).detach().clamp(min=1e-8) * stability_coeff
-            # compute cosine map
-            cosines = (input * target).sum(dim=1)
-            error_radians = torch.acos(cosines)
-            # increase by the number of directions within the threshold
-            within_count += error_radians[error_radians < self.threshold_radians].numel()
-            # increase by the number of all directions
-            total_count += error_radians.numel()
-
-        return torch.tensor(within_count / total_count)
-
-
-class InverseAngularError:
-    def __init__(self, **kwargs):
-        pass
-
-    def __call__(self, inputs, targets, **kwargs):
-        assert isinstance(inputs, list)
-        if len(inputs) == 1:
-            targets = [targets]
-        assert len(inputs) == len(targets)
-
-        total_error = 0
-        for input, target in zip(inputs, targets):
-            # normalize and multiply by the stability_coeff in order to prevent NaN results from torch.acos
-            stability_coeff = 0.999999
-            input = input / torch.norm(input, p=2, dim=1).detach().clamp(min=1e-8) * stability_coeff
-            target = target / torch.norm(target, p=2, dim=1).detach().clamp(min=1e-8) * stability_coeff
-            # compute cosine map
-            cosines = (input * target).sum(dim=1)
-            error_radians = torch.acos(cosines)
-            total_error += error_radians.sum()
-
-        return torch.tensor(1. / total_error)
-
-
-class PSNR:
-    def __init__(self, **kwargs):
-        pass
+    def __init__(self, weight=None, ignore_index=None, **kwargs):
+        self.weight = weight
+        self.ignore_index = ignore_index
 
     def __call__(self, input, target):
-        assert input.size() == target.size()
+        """
+        Computes STEAL edge loss
+        :param input: 4D input tensor (NCHW)
+        :param target: 3D target tensor (NHW)
+        :return: STEALEdgeLoss
+        """
+        n_classes = input.size()[1]
+        if target.dim() < input.dim():
+            target = expand_as_one_hot(target, C=n_classes, ignore_index=self.ignore_index)
+        weight_sum = target.sum(dim=1).sum(dim=1).sum(dim=1)
+        edge_weight = weight_sum / (target.size()[2] * target.size()[3])
+        edge_weight = edge_weight.unsqueeze(1).unsqueeze(2).unsqueeze(3)
+        non_edge_weight = 1 - edge_weight
 
-        return 10 * torch.log10(1 / torch.max(F.mse_loss(input, target), torch.tensor(0.01).to(input.device)))
+        one_sigmoid_out = input
+        zero_sigmoid_out = 1 - one_sigmoid_out
 
+        loss = - non_edge_weight * target * torch.log(one_sigmoid_out.clamp(min = 1e-10)) -  edge_weight * (1 - target) * torch.log(zero_sigmoid_out.clamp(min = 1e-10))
+
+        return (loss.mean(dim = 0)).sum()
 
 def get_evaluation_metric(config):
     """

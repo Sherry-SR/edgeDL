@@ -94,7 +94,7 @@ class SliceBuilder:
                 x_steps = SliceBuilder._gen_indices(i_x, k_x, s_x)
                 for x in x_steps:
                     slice_idx = (
-                        z,
+                        slice(z, z + 1),
                         slice(y, y + k_y),
                         slice(x, x + k_x)
                     )
@@ -167,8 +167,8 @@ class NiftiDataset(Dataset):
         raw_transformed = self._transform_datasets(self.raw, raw_idx, self.raw_transform)
 
         if self.phase == 'test':
-            # just return the transformed raw data
-            return raw_transformed
+            # just return the transformed raw data and slice index
+            return raw_transformed, raw_idx
         else:
             # get the slice for a given index 'idx'
             label_idx = self.label_slices[idx]
@@ -291,7 +291,7 @@ def get_train_loaders(config):
             logger.info(f'Skipping validation set: {val_path}', exc_info=True)
 
     num_workers = loaders_config.get('num_workers', 1)
-    batch_size = loaders_config.get('bach_size', 1)
+    batch_size = loaders_config.get('batch_size', 1)
     logger.info(f'Number of workers for train/val datasets: {num_workers}')
     # when training with volumetric data use batch_size of 1 due to GPU memory constraints
     return {
@@ -310,13 +310,9 @@ def get_test_loaders(config):
 
     def my_collate(batch):
         error_msg = "batch must contain tensors or slice; found {}"
-        if isinstance(batch[0], torch.Tensor):
-            return torch.stack(batch, 0)
-        elif isinstance(batch[0], slice):
-            return batch[0]
-        elif isinstance(batch[0], collections.Sequence):
-            transposed = zip(*batch)
-            return [my_collate(samples) for samples in transposed]
+        if isinstance(batch[0][0], torch.Tensor):
+            out = batch[0][0]
+            return out.unsqueeze(0), batch[0][1]
 
         raise TypeError((error_msg.format(type(batch[0]))))
 
@@ -343,7 +339,8 @@ def get_test_loaders(config):
                 for line in f:
                     name, file_path = line.split()[0:2]
                     logger.info(f'Create testing dataset from: {name}...')
-                    test_dataset = NiftiDataset(file_path, test_patch, test_stride, phase = 'test', clip_val = clip_val)                    # use generator in order to create data loaders lazily one by one
+                    test_dataset = NiftiDataset(file_path, test_patch, test_stride, phase = 'test', clip_val = clip_val, transformer_config = loaders_config['transformer'],)
+                    # use generator in order to create data loaders lazily one by one
                     yield DataLoader(test_dataset, batch_size=1, num_workers=num_workers, collate_fn=my_collate)
         except Exception:
             logger.info(f'Skipping testing set: {test_path}', exc_info=True)
