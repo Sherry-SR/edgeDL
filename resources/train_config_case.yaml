@@ -19,15 +19,15 @@ trainer:
   # path to latest checkpoint; if provided the training will be resumed from that checkpoint
   resume: null
   # how many iterations between validations
-  validate_after_iters: 600
+  validate_after_iters: 5000
   # how many iterations between tensorboard logging
-  log_after_iters: 1
+  log_after_iters: 50
   # how many iterations evaluated in validations
   validate_iters: null
   # max number of epochs
   epochs: 100
   # max number of iterations
-  iters: 30000
+  iters: 500000
   # model with lower eval score is considered better
   eval_score_higher_is_better: False
 # optimizer configuration
@@ -69,14 +69,14 @@ loaders:
   clip_val: [-1000, 2000]
   # paths to the training datasets
   train_path:
-    - '/mnt/lustre/shenrui/data/pelvis_resampled/dataset_train_temp.txt'
+    - '/mnt/lustre/shenrui/data/pelvis_resampled/dataset_train.txt'
   # paths to the validation datasets
   val_path:
-    - '/mnt/lustre/shenrui/data/pelvis_resampled/dataset_val_temp.txt'
+    - '/mnt/lustre/shenrui/data/pelvis_resampled/dataset_val.txt'
   # how many subprocesses to use for data loading
   num_workers: 8
   # batch size in training process
-  batch_size: 50
+  batch_size: 4
   # data transformations/augmentations
   transformer:
     train:
