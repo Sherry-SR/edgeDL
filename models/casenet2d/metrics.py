@@ -7,6 +7,8 @@ from skimage import measure
 
 from models.casenet2d.losses import compute_per_channel_dice, expand_as_one_hot
 from utils.helper import get_logger, adapted_rand
+import warnings
+warnings.filterwarnings("ignore")
 
 logger = get_logger('EvalMetric')
 
@@ -148,7 +150,7 @@ class PrecisionStats:
         if target.dim() < input.dim():
             target = expand_as_one_hot(target, C=n_classes, ignore_index=self.ignore_index)
         input = input.detach().cpu().numpy()
-        target = target.detach().cpu().numpy()
+        target = target.detach().cpu().numpy().astype(np.bool)
 
         precisions = []
         recalls = []
@@ -174,10 +176,9 @@ class PrecisionStats:
             fms.append(fm)
         
         AP = np.nanmax(np.nanmean(precisions, axis=1), axis=0)
+        AR = np.nanmax(np.nanmean(recalls, axis=1), axis=0)
         AFM = np.nanmax(np.nanmean(fms, axis=1), axis=0)
-        # get maximum average precision across channels
-        logger.info(f'Max average precision: {AP}, Max average recall: {AFM}')
-        return precisions, recalls, fms
+        return AP, AR, AFM
 
 class STEALEdgeLoss:
 
@@ -200,7 +201,7 @@ class STEALEdgeLoss:
         edge_weight = edge_weight.unsqueeze(1).unsqueeze(2).unsqueeze(3)
         non_edge_weight = 1 - edge_weight
 
-        one_sigmoid_out = input
+        one_sigmoid_out = torch.sigmoid(input)
         zero_sigmoid_out = 1 - one_sigmoid_out
 
         loss = - non_edge_weight * target * torch.log(one_sigmoid_out.clamp(min = 1e-10)) -  edge_weight * (1 - target) * torch.log(zero_sigmoid_out.clamp(min = 1e-10))

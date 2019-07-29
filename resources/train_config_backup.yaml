@@ -11,23 +11,23 @@ model:
   # set layers
   layers: [3, 4, 23, 3]
   # apply element-wise nn.Sigmoid after the final 1x1 convolution, otherwise apply nn.Softmax
-  final_sigmoid: True
+  final_sigmoid: False
 # trainer configuration
 trainer:
   # path to the checkpoint directory
-  checkpoint_dir: /home/SENSETIME/shenrui/Dropbox/SenseTime/edgeDL/checkpoints/pelvis/unet3d
+  checkpoint_dir: /home/SENSETIME/shenrui/Dropbox/SenseTime/edgeDL/checkpoints/pelvis/casenet2d
   # path to latest checkpoint; if provided the training will be resumed from that checkpoint
   resume: null
   # how many iterations between validations
-  validate_after_iters: 300
+  validate_after_iters: 20
   # how many iterations between tensorboard logging
-  log_after_iters: 1
+  log_after_iters: 3
   # how many iterations evaluated in validations
   validate_iters: null
   # max number of epochs
   epochs: 100
   # max number of iterations
-  iters: 30000
+  iters: null
   # model with lower eval score is considered better
   eval_score_higher_is_better: False
 # optimizer configuration
@@ -49,8 +49,6 @@ eval_metric:
   name: STEALEdgeLoss
   # a target label that is ignored during metric evaluation
   ignore_index: null
-  # number of points in PR curve
-  nthresh: 9
 lr_scheduler:
   name: MultiStepLR
   milestones: [10, 30, 60]
@@ -76,13 +74,12 @@ loaders:
   # how many subprocesses to use for data loading
   num_workers: 0
   # batch size in training process
-  batch_size: 2
+  batch_size: 1
   # data transformations/augmentations
   transformer:
     train:
       raw:
         - name: ClipNormalize
-        - name: RandomFlip
         - name: RandomRotate90
         - name: RandomRotate
           axes: [[0, 1]]
@@ -93,7 +90,6 @@ loaders:
         - name: ToTensor
           expand_dims: true
       label:
-        - name: RandomFlip
         - name: RandomRotate90
         - name: RandomRotate
           axes: [[0, 1]]

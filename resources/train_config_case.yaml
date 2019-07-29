@@ -11,7 +11,7 @@ model:
   # set layers
   layers: [3, 4, 23, 3]
   # apply element-wise nn.Sigmoid after the final 1x1 convolution, otherwise apply nn.Softmax
-  final_sigmoid: True
+  final_sigmoid: False
 # trainer configuration
 trainer:
   # path to the checkpoint directory
@@ -27,7 +27,7 @@ trainer:
   # max number of epochs
   epochs: 100
   # max number of iterations
-  iters: 500000
+  iters: null
   # model with lower eval score is considered better
   eval_score_higher_is_better: False
 # optimizer configuration
@@ -49,8 +49,6 @@ eval_metric:
   name: STEALEdgeLoss
   # a target label that is ignored during metric evaluation
   ignore_index: null
-  # number of points in PR curve
-  nthresh: 9
 lr_scheduler:
   name: MultiStepLR
   milestones: [10, 30, 60]
@@ -82,7 +80,6 @@ loaders:
     train:
       raw:
         - name: ClipNormalize
-        - name: RandomFlip
         - name: RandomRotate90
         - name: RandomRotate
           axes: [[0, 1]]
@@ -93,7 +90,6 @@ loaders:
         - name: ToTensor
           expand_dims: true
       label:
-        - name: RandomFlip
         - name: RandomRotate90
         - name: RandomRotate
           axes: [[0, 1]]

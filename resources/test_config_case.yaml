@@ -1,5 +1,5 @@
 # path to the checkpoint file containing the model
-model_path: /mnt/lustre/shenrui/project/edgeDL/saved_weights/pelvis/casenet2d/last_checkpoint.pytorch
+model_path: /mnt/lustre/shenrui/project/edgeDL/saved_weights/pelvis/casenet2d/best_checkpoint.pytorch
 # path to the folder of the predictions
 save_path: /mnt/lustre/shenrui/data/pelvis_predict
 prediction_channel: null
@@ -10,11 +10,18 @@ model:
   # number of input channels to the model
   in_channels: 1
   # number of output classes
-  out_channels: 6
+  out_channels: 5
   # set layers
   layers: [3, 4, 23, 3]
-  # apply element-wise nn.Sigmoid after the final 1x1 convolution, otherwise apply nn.Softmax
-  final_sigmoid: False
+  # apply element-wise nn.Sigmoid after the final 1x1 convolution
+  final_sigmoid: True
+# evaluation metric configuration
+eval_metric:
+  name: PrecisionStats
+  # a target label that is ignored during metric evaluation
+  ignore_index: null
+  # number of points in PR curve
+  nthresh: 19
 # specify the test datasets
 loaders:
   # test patch size given to the network (adapt to fit in your GPU mem)
@@ -27,10 +34,15 @@ loaders:
   num_workers: 8
   # paths to the datasets
   test_path:
-    - '/mnt/lustre/shenrui/data/pelvis_resampled/dataset_test.txt'
+    - '/mnt/lustre/shenrui/data/pelvis_resampled/dataset_all.txt'
   transformer:
     test:
       raw:
         - name: ClipNormalize
         - name: ToTensor
           expand_dims: true
+      label:
+        - name: SegToEdge
+        - name: ToTensor
+          expand_dims: false
+          dtype: 'long'

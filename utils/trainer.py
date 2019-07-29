@@ -40,7 +40,7 @@ class NNTrainer:
 
     def __init__(self, model, optimizer, lr_scheduler, loss_criterion,
                  eval_criterion, device, loaders, checkpoint_dir,
-                 max_num_epochs=100, max_num_iterations=1e5,
+                 max_num_epochs=100, max_num_iterations=None,
                  validate_after_iters=100, log_after_iters=100,
                  validate_iters=None, num_iterations=1, num_epoch=0,
                  eval_score_higher_is_better=True, best_eval_score=None,
@@ -150,26 +150,20 @@ class NNTrainer:
         """
         train_losses = RunningAverage()
         train_eval_scores = RunningAverage()
-
+        self.logger.info(
+            f'Training epoch [{self.num_epoch}/{self.max_num_epochs - 1}], iteration per epoch: {len(train_loader)}. ')
         # sets the model in training mode
         self.model.train()
         if self.validate_after_iters is None:
-            self.validate_after_iters = len(train_loader.dataset)
+            self.validate_after_iters = len(train_loader)
         if self.log_after_iters is None:
             self.log_after_iters = 1
-        train_iterator = iter(train_loader)
+        if self.max_num_iterations is None:
+            self.max_num_iterations = self.max_num_epochs * len(train_loader)
 
-        for i in tqdm(range(self.max_num_iterations)):
-            try:
-                batch = next(train_iterator)
-                input, target, weight = self._split_training_batch(batch)
-            except StopIteration:
-                train_iterator = iter(train_loader)
-                batch = next(train_iterator)
-                input, target, weight = self._split_training_batch(batch)
-
+        for i, t in enumerate(train_loader):
+            input, target, weight = self._split_training_batch(t)
             output, loss = self._forward_pass(input, target, weight)
-
             train_losses.update(loss.item(), self._batch_size(input))
 
             # compute gradients and update parameters
@@ -200,7 +194,8 @@ class NNTrainer:
                 # if model contains final_activation layer for normalizing logits apply it, otherwise both
                 # the evaluation metric as well as images in tensorboard will be incorrectly computed
                 if hasattr(self.model, 'final_activation'):
-                    output = self.model.final_activation(output)
+                    if self.model.final_activation is not None:
+                        output = self.model.final_activation(output)
 
                 # compute eval criterion
                 eval_score = self.eval_criterion(output, target)
@@ -208,27 +203,33 @@ class NNTrainer:
 
                 # log stats, params and images
                 self.logger.info(
+                    f'Training iteration [{self.num_iterations}/{self.max_num_iterations}]. Batch [{i}/{len(train_loader) - 1}]. Epoch [{self.num_epoch}/{self.max_num_epochs - 1}]')
+                self.logger.info(
                     f'Training stats. Loss: {train_losses.avg}. Evaluation score: {train_eval_scores.avg}')
                 self._log_stats('train', train_losses.avg, train_eval_scores.avg)
 
+            if self.max_num_iterations < self.num_iterations:
+                self.logger.info(
+                    f'Maximum number of iterations {self.max_num_iterations} exceeded. Finishing training...')
+                return True
+
             self.num_iterations += 1
             
-        self.logger.info(f'Maximum number of iterations {self.max_num_iterations} exceeded. Finishing training...')
-        return True
+        return False
 
     def validate(self, val_loader):
-        self.logger.info('Validating...')
 
         val_losses = RunningAverage()
         val_scores = RunningAverage()
-
+        
+        self.logger.info(f'Validating epoch [{self.num_epoch}/{self.max_num_epochs - 1}]. ')
+        if self.validate_iters is None:
+            self.validate_iters = len(val_loader)
+        val_iterator = iter(val_loader)
+        
         try:
             # set the model in evaluation mode; final_activation doesn't need to be called explicitly
             self.model.eval()
-            if self.validate_iters is None:
-                self.validate_iters = len(val_loader.dataset)
-            val_iterator = iter(val_loader)
-            
             with torch.no_grad():
                 for i in tqdm(range(self.validate_iters)):
                     try:

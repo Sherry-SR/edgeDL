@@ -258,7 +258,7 @@ class ResNet(nn.Module):
         if final_sigmoid:
             self.final_activation = nn.Sigmoid()
         else:
-            self.final_activation = nn.Softmax(dim=1)
+            self.final_activation = None
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -349,7 +349,7 @@ class ResNet(nn.Module):
         sliced_cat = self._sliced_concat(side_1, side_2, side_3, side_5, self._nclasses)
         out = self.ce_fusion(sliced_cat)
 
-        if not self.training:
+        if self.final_activation is not None and not self.training:
             out = self.final_activation(out)
 
         return out

@@ -1,5 +1,6 @@
 /results/*
 /checkpoints/*
+/saved_weights/*
 .pytest_cache/*
 .vscode/*
 /models/__pycache__/*

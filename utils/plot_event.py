@@ -18,7 +18,7 @@ def parse_events_file(path: str) -> pd.DataFrame:
             if isinstance(v.simple_value, float) and is_interesting_tag(v.tag):
                 for k in metrics.keys():
                     if len(metrics[k]) < step :
-                        metrics[k].append(None)
+                        metrics[k].extend([None]*(step-len(metrics[k])))
                 if (metrics.get(v.tag) is None):
                     metrics[v.tag] = [None] * step
                 metrics[v.tag][step - 1] = v.simple_value
@@ -26,7 +26,7 @@ def parse_events_file(path: str) -> pd.DataFrame:
     return metrics_df
 
 
-dataset = parse_events_file(path = './checkpoints/pelvis/casenet2d/logs/events.out.tfevents.1563791350.SH-IDC1-10-5-38-155')
+dataset = parse_events_file(path = './checkpoints/pelvis/casenet2d/logs/events.out.tfevents.1564327255.SH-IDC1-10-5-38-155')
 dataset[['train_eval_score_avg', 'val_eval_score_avg']].interpolate().plot()
 dataset[['train_loss_avg', 'val_loss_avg']].interpolate().plot()
 plt.show()

@@ -6,9 +6,10 @@ import numpy as np
 import torch
 import nibabel as nib
 
-from utils.helper import get_logger, load_checkpoint, unpad
+from utils.helper import get_logger, load_checkpoint, unpad, RunningAverage
 from utils.config import load_config
 from models.casenet2d.model import get_model
+from models.casenet2d.metrics import get_evaluation_metric
 
 from utils.databuilder import get_test_loaders
 
@@ -37,6 +38,9 @@ def predict(model, data_loader, output_file, config, logger):
     out_channels = config['model'].get('out_channels')
     assert out_channels is not None
 
+    # store evaluation metrics
+    eval_scores = []
+
     prediction_channel = config.get('prediction_channel', None)
     if prediction_channel is not None:
         logger.info(f"Using only channel '{prediction_channel}' from the network output")
@@ -63,7 +67,7 @@ def predict(model, data_loader, output_file, config, logger):
     model.eval()
     # Run predictions on the entire input dataset
     with torch.no_grad():
-        for patch, index in data_loader:
+        for patch, index, target, t_index in data_loader:
             logger.info(f'Predicting slice:{index}')
 
             # save patch index: (C,D,H,W)
@@ -78,6 +82,12 @@ def predict(model, data_loader, output_file, config, logger):
             patch = patch.to(device)
             # forward pass
             prediction = model(patch)
+
+            if target is not None:
+                eval_criterion = get_evaluation_metric(config)
+                eval_score = eval_criterion(prediction, target)
+                eval_scores.append(eval_score)
+                logger.info(f'Current evaluation score: {np.nanmax(eval_score, axis = 1)}.')
 
             # squeeze batch dimension and convert back to numpy array
             prediction = prediction.squeeze(dim=0).cpu().numpy()
@@ -95,9 +105,9 @@ def predict(model, data_loader, output_file, config, logger):
 
     # save probability maps
     prediction_map = prediction_map / normalization_mask
-    logger.info(f'Saving predictions to: {output_file}...')
+    logger.info(f'Testing finished. Average evaluation score: {np.nanmean(eval_scores, axis = 0)}. Saving predictions to: {output_file}...')
     affine = data_loader.dataset.affine
-    prediction_map_save = np.floor(np.transpose(prediction_map * 1e4)).astype(np.int16)
+    prediction_map_save = np.transpose(np.floor(prediction_map * 1e4).astype(np.int16))
     nib.save(nib.Nifti1Image(prediction_map_save, affine), output_file)
 
 def _get_output_file(dataset, folderpath = None, suffix='_predictions', ext = 'nii.gz'):
@@ -105,6 +115,12 @@ def _get_output_file(dataset, folderpath = None, suffix='_predictions', ext = 'n
     if folderpath is None:
         folderpath = os.path.dirname(dataset.file_path)
     return f'{os.path.join(folderpath, filename)}{suffix}.{ext}'
+
+def get_batch_size(input):
+    if isinstance(input, list) or isinstance(input, tuple):
+        return input[0].size(0)
+    else:
+        return input.size(0)
 
 def main():
     # Create main logger

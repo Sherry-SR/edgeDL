@@ -140,7 +140,7 @@ class NiftiDataset(Dataset):
         self.transformer = transforms.get_transformer(transformer_config, phase, mean=mean, std=std, clip_val=clip_val)
         self.raw_transform = self.transformer.raw_transform()
 
-        if phase != 'test':
+        if label_path is not None:
             assert os.path.exists(label_path)
             niftiseg = nib.load(label_path)
             self.label = np.transpose(niftiseg.get_fdata())
@@ -166,13 +166,17 @@ class NiftiDataset(Dataset):
         # get the raw data patch for a given slice
         raw_transformed = self._transform_datasets(self.raw, raw_idx, self.raw_transform)
 
-        if self.phase == 'test':
-            # just return the transformed raw data and slice index
-            return raw_transformed, raw_idx
-        else:
+        if self.label is not None:
             # get the slice for a given index 'idx'
             label_idx = self.label_slices[idx]
             label_transformed = self._transform_datasets(self.label, label_idx, self.label_transform)
+        else:
+            label_idx = None
+            label_transformed = None
+        if self.phase == 'test':   
+            # return the transformed data and slice index
+            return raw_transformed, raw_idx, label_transformed, label_idx
+        else:
             # return the transformed raw and label data
             return raw_transformed, label_transformed
 
@@ -312,8 +316,11 @@ def get_test_loaders(config):
         error_msg = "batch must contain tensors or slice; found {}"
         if isinstance(batch[0][0], torch.Tensor):
             out = batch[0][0]
-            return out.unsqueeze(0), batch[0][1]
-
+            if isinstance(batch[0][2], torch.Tensor):
+                out2 = (batch[0][2]).unsqueeze(0)
+            else:
+                out2 = None
+            return out.unsqueeze(0), batch[0][1], out2, batch[0][3]
         raise TypeError((error_msg.format(type(batch[0]))))
 
     logger = get_logger('TestDataset')
@@ -331,16 +338,23 @@ def get_test_loaders(config):
     clip_val = tuple(loaders_config['clip_val'])
     num_workers = loaders_config.get('num_workers', 1)
 
+    slice_builder_str = loaders_config.get('slice_builder', 'SliceBuilder')
+    logger.info(f'Slice builder class: {slice_builder_str}')
+    slice_builder_cls = _get_slice_builder_cls(slice_builder_str)
+
     for test_path in test_paths:
         assert os.path.exists(test_path)
         try:
             logger.info(f'Loading testing set from: {test_path}...')
             with open(test_path) as f:
                 for line in f:
-                    name, file_path = line.split()[0:2]
+                    name, file_path, label_path = line.split()[0:3]
                     logger.info(f'Create testing dataset from: {name}...')
-                    test_dataset = NiftiDataset(file_path, test_patch, test_stride, phase = 'test', clip_val = clip_val, transformer_config = loaders_config['transformer'],)
+                    test_dataset = NiftiDataset(file_path, test_patch, test_stride, phase = 'test',
+                                                 label_path = label_path, clip_val = clip_val,
+                                                 transformer_config = loaders_config['transformer'],
+                                                 slice_builder_cls = slice_builder_cls)
                     # use generator in order to create data loaders lazily one by one
-                    yield DataLoader(test_dataset, batch_size=1, num_workers=num_workers, collate_fn=my_collate)
+                    yield DataLoader(test_dataset, batch_size = 1, num_workers=num_workers, collate_fn=my_collate)
         except Exception:
             logger.info(f'Skipping testing set: {test_path}', exc_info=True)
