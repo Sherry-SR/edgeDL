@@ -88,6 +88,15 @@ class SliceBuilder:
 
         k_y, k_x = patch_shape
         s_y, s_x = stride_shape
+        if k_y is None:
+            k_y = i_y
+        if k_x is None:
+            k_x = i_x
+        if s_y is None:
+            s_y = k_y
+        if s_x is None:
+            s_x = k_x
+            
         for z in range(i_z):
             y_steps = SliceBuilder._gen_indices(i_y, k_y, s_y)
             for y in y_steps:

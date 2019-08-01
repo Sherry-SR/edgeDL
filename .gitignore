@@ -10,3 +10,4 @@
 /utils/__pycache__/*
 /utils/contours/__pycache__/*
 /utils/useless/__pycache__/*
+/coarse_to_fine/__pycache__/*

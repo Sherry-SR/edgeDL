@@ -25,7 +25,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-import contours.cutils as cutils
+import utils.contours.cutils as cutils
 
 
 class LevelSetAlignmentBase:
@@ -37,7 +37,6 @@ class LevelSetAlignmentBase:
         :param fn_debug: usually a function fn(image,str)... maybe a wrapper to plot.imshow(image,title)
         """
         self.fn_post_process_callback = fn_post_process_callback
-        self.ignore_labels = (255,)
         self.n_workers = n_workers
 
         if config is None:
@@ -70,9 +69,9 @@ class LevelSetAlignmentBase:
 
 
 def LevelSetAlignment(fn_post_process_callback=None, n_workers=1, fn_debug=None, config=None, method=None):
-    import contours.ContourBox_MLS
+    import utils.contours.ContourBox_MLS
     _LevelSets = {
-        'MLS': contours.ContourBox_MLS.MLS,
+        'MLS': utils.contours.ContourBox_MLS.MLS,
     }
 
     if method is not None:

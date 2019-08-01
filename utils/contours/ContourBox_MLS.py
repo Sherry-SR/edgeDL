@@ -25,12 +25,12 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-from contours.morph_snakes import morphological_geodesic_active_contour
+from utils.contours.morph_snakes import morphological_geodesic_active_contour
 from scipy.ndimage.morphology import binary_fill_holes
 import numpy as np
 import multiprocessing as mp
-from contours.cutils import seg2edges, update_callback_in_image, compute_h_additive
-from contours.ContourBox import LevelSetAlignmentBase
+from utils.contours.cutils import seg2edges, update_callback_in_image, compute_h_additive
+from utils.contours.ContourBox import LevelSetAlignmentBase
 import torch
 import warnings
 
@@ -50,7 +50,7 @@ class MLS(LevelSetAlignmentBase):
             raise ValueError('_fill_inside wrong method:%s' % method)
 
     def _eval_singleK(self, gt_K, pK_Image, step_ckpts, lambda_, alpha, smoothing,
-                      render_radius, is_gt_semantic, weight_canvas=None, **kwargs):
+                      render_radius, is_gt_semantic, **kwargs):
 
         def store_evolution_in(lst):
             """Returns a callback function to store the evolution of the level sets in
@@ -71,27 +71,6 @@ class MLS(LevelSetAlignmentBase):
             out = [gt_K for _ in range(len(step_ckpts))]
             return [out, out]
 
-        # let's remove for now the ignore areas
-        ignore_dict = {}
-        #
-        for ignore_id in self.ignore_labels:
-            idxs = np.nonzero(gt_K == ignore_id)
-            gt_K[idxs] = 0.
-            ignore_dict[ignore_id] = idxs
-
-        # let's check again for zeros.
-        all_zeros = not np.any(gt_K)  #
-
-        # nothing to do
-        if all_zeros:
-            # ignore areas back
-            for k, v in ignore_dict.items():
-                gt_K[v] = k
-            out = [gt_K for _ in range(len(step_ckpts))]
-            zero_pp = np.zeros_like(gt_K)
-            out2 = [zero_pp for _ in range(len(step_ckpts))]
-            return [out, out2]
-
         if is_gt_semantic is False:
             # filling inside_ to represent the curve
             # this may have problem with boundaries that are not closed(corners of the image dimension)
@@ -99,7 +78,7 @@ class MLS(LevelSetAlignmentBase):
             init_ls = self._fill_inside(gt_K)
         else:
             init_ls = gt_K
-            gt_K = seg2edges(gt_K, radius=render_radius, label_ignores=self.ignore_labels)
+            gt_K = seg2edges(gt_K, radius=render_radius)
 
         if self.fn_debug is not None:
             self.fn_debug(init_ls, 'init_ls')
@@ -107,11 +86,6 @@ class MLS(LevelSetAlignmentBase):
         # List with intermediate results to save the evolution
         evolution = []
         callback = store_evolution_in(evolution)
-
-        if weight_canvas is not None:
-            if 'merge_weight' in self.options_dict:
-                if self.options_dict['merge_weight'] > 0:
-                    pK_Image = pK_Image + weight_canvas
 
         h = self._compute_h(gt_K, pK_Image, lambda_, alpha)
 
@@ -136,7 +110,7 @@ class MLS(LevelSetAlignmentBase):
                                               threshold=threshold,
                                               iter_callback=callback)
 
-        pixel_wise_evol = [seg2edges(evol, radius=render_radius, label_ignores=self.ignore_labels) for evol in
+        pixel_wise_evol = [seg2edges(evol, radius=render_radius) for evol in
                            evolution]
 
         if 0 in step_ckpts:
@@ -151,11 +125,6 @@ class MLS(LevelSetAlignmentBase):
             pass
             # ...
 
-        ##bringing back the ignored areas back
-        for k, v in ignore_dict.items():
-            for j in range(len(pixel_wise_evol)):
-                pixel_wise_evol[j][v] = k
-
         if self.fn_post_process_callback is None:
             return [pixel_wise_evol, pixel_wise_evol]
         else:
@@ -163,17 +132,16 @@ class MLS(LevelSetAlignmentBase):
 
     #
     def process_batch_fn(self, args):
-        i, K, gt, pk, weight_canvas = args
-        gt = gt[i]
-        pk = pk[i]
-        weightk_canvas = weight_canvas[i]
+        i, K, gt, pk = args
+        gt = gt[:,i,:,:]
+        pk = pk[:,i,:,:]
 
         gt_hat = []
         gt_hat_pp = []
 
         for j in range(K):
             gtk = gt[j]
-            gt_hat_k, gt_hat_pp_k = self._eval_singleK(gtk, pk[j], weight_canvas=weightk_canvas[j], **self.options_dict)
+            gt_hat_k, gt_hat_pp_k = self._eval_singleK(gtk, pk[j], **self.options_dict)
             gt_hat.append(gt_hat_k)
 
             if self.fn_post_process_callback is None:
@@ -184,12 +152,12 @@ class MLS(LevelSetAlignmentBase):
         return i, [np.stack(gt_hat, axis=0), np.stack(gt_hat_pp, axis=0)]  # KxLStepsxHxW
 
     def process_batch_hack_multicpu(self, args):
-        i, K, mem_id_gt, mem_id_pk, mem_id_weight_canvas = args
+        i, K, mem_id_gt, mem_id_pk, = args
 
         if shared_mem_data is None:
             raise ValueError()
 
-        gt, pk, weight_canvas = shared_mem_data[0], shared_mem_data[1], shared_mem_data[2]
+        gt, pk = shared_mem_data[0], shared_mem_data[1]
 
         if mem_id_gt != id(gt):
             raise ValueError('error seems the memory id are not the same, not shared array... is this linux?')
@@ -197,11 +165,8 @@ class MLS(LevelSetAlignmentBase):
         if mem_id_pk != id(pk):
             raise ValueError('error seems the memory id are not the same, not shared array... is this linux?')
 
-        if mem_id_weight_canvas != id(weight_canvas):
-            raise ValueError('error seems the memory id are not the same, not shared array... is this linux?')
-
         # seems all is fine...let's do it.
-        args2 = (i, K, gt, pk, weight_canvas)
+        args2 = (i, K, gt, pk)
         return self.process_batch_fn(args2)
 
     def _multi_cpu_call(self, gt, pk):
@@ -219,7 +184,7 @@ class MLS(LevelSetAlignmentBase):
 
         return output_
 
-    def _multi_cpu_call_2(self, gt, pk, weight_canvas=None):
+    def _multi_cpu_call_2(self, gt, pk):
         """
         -->...similar to above but the workers can be reused in N*K elements instead of just K
         :param gt:
@@ -233,46 +198,20 @@ class MLS(LevelSetAlignmentBase):
         gt = np.reshape(gt, [N * K, 1, H, W])
         pk = np.reshape(pk, [N * K, 1, H, W])
 
-        if weight_canvas is not None:
-            weight_canvas = np.reshape(weight_canvas, [N * K, 1, H, W])
-        else:
-            weight_canvas = np.zeros_like(pk)
-
         global shared_mem_data
-        shared_mem_data = (gt, pk, weight_canvas)
+        shared_mem_data = (gt, pk)
 
         #
         pool = mp.Pool(min(N * K, self.n_workers))
 
         output_ = pool.map(self.process_batch_hack_multicpu,
-                           [(i, 1, id(gt), id(pk), id(weight_canvas)) for i in range(N * K)])
+                           [(i, 1, id(gt), id(pk)) for i in range(N * K)])
 
         pool.close()
         pool.join()
         # we need to reorder the array to make it compatible with the rest of the api.
 
         return output_
-
-    def merge_everyone_but_me(self, pks_, me):
-        canvas = np.zeros_like(pks_[0])
-        for k in range(pks_.shape[0]):
-            if k == me:
-                continue
-            canvas += pks_[k]
-
-        canvas = canvas / (np.max(canvas) + 1e-6)
-        return canvas
-
-    def weigthing_merge(self, weight, pks):
-        N, K, H, W = pks.shape
-        output = np.zeros_like(pks)
-        for n in range(N):
-            item = pks[n]
-            for k in range(K):
-                # TODO this is quadratic for now in k :((, do properly.
-                canvas = self.merge_everyone_but_me(item, k)
-                output[n, k] = weight * canvas
-        return output
 
     def __call__(self, gt_dict, pk):
 
@@ -287,24 +226,14 @@ class MLS(LevelSetAlignmentBase):
             pk = pk.cpu().numpy()
 
         assert gt.shape == pk.shape
-        N, K, H, W = pk.shape
+        K, D, H, W = pk.shape
 
-        weight_canvas = None
-        if 'merge_weight' in self.options_dict:
-            weights = self.options_dict['merge_weight']
-            if weights >= 0:
-                weight_canvas = self.weigthing_merge(weights, pk)
-            elif weights == 0:
-                print('skipping...')
-            else:
-                raise ValueError('negative ?, this shouldnt happen')
-
-        if N * K > 1 and self.n_workers > 1:
-            output_ = self._multi_cpu_call_2(gt, pk, weight_canvas)
+        if D * K > 1 and self.n_workers > 1:
+            output_ = self._multi_cpu_call_2(gt, pk)
         else:
             output_ = []
-            for i in range(N):
-                idx, gt_hat = self.process_batch_fn((i, K, gt, pk, weight_canvas))
+            for i in range(D):
+                idx, gt_hat = self.process_batch_fn((i, K, gt, pk))
                 output_.append((idx, gt_hat))
 
         # checking batch order ... it shouldnt be needed it, but  dont wanna have nasty surprises.
@@ -323,8 +252,6 @@ class MLS(LevelSetAlignmentBase):
         #
 
         if self.fn_post_process_callback is not None:
-            return np.stack(verified_output, axis=0).reshape(N, K, -1, H, W), np.stack(verified_output_pp,
-                                                                                       axis=0).reshape(N, K, -1, H, W)
+            return np.stack(verified_output, axis=1), np.stack(verified_output_pp, axis=1)
         else:
-
-            return np.stack(verified_output, axis=0).reshape(N, K, -1, H, W), None  # NxKxLStepsxHxW
+            return np.stack(verified_output, axis=1), None  # NxKxLStepsxHxW

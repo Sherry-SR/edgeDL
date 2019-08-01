@@ -51,7 +51,7 @@ def update_callback_in_image(image):
     return fn_post_process_callback
 
 
-def seg2edges(image, radius, label_ignores=(255,)):
+def seg2edges(image, radius):
     """
     :param image: semantic map should be HxWx1 with values 0,1,label_ignores
     :param radius: radius size
@@ -60,13 +60,6 @@ def seg2edges(image, radius, label_ignores=(255,)):
     """
     if radius < 0:
         return image
-
-    ignore_dict = {}
-
-    for ignore_id in label_ignores:
-        idxs = np.nonzero(image == ignore_id)
-        image[idxs] = 0.
-        ignore_dict[ignore_id] = idxs
 
     # we need to pad the borders, to solve problems with dt around the boundaries of the image.
     image_pad = np.pad(image, ((1, 1), (1, 1)), mode='constant', constant_values=0)
@@ -81,10 +74,6 @@ def seg2edges(image, radius, label_ignores=(255,)):
     dist[dist > radius] = 0
 
     dist = (dist > 0).astype(np.uint8)  # just 0 or 1
-
-    ##bringing back the ignored areas back
-    for k, v in ignore_dict.items():
-        dist[v] = k
 
     return dist
 
@@ -116,7 +105,8 @@ def seg2edges_2d(image, radius):
 
 def compute_h_additive(gt_K, pK_Image, lambda_, alpha):
     # normalizing pK_image so that's [0..1]
-    pK_Image = pK_Image / (np.max(pK_Image) + 1e-5)
+    #pK_Image = pK_Image / (np.max(pK_Image) + 1e-5)
+    pK_Image = pK_Image / 10000
 
     gPimage = 1.0 / np.sqrt(1.0 + alpha * pK_Image)
     gpGT = 1.0 / np.sqrt(1.0 + alpha * gt_K)

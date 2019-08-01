@@ -80,20 +80,18 @@ loaders:
     train:
       raw:
         - name: ClipNormalize
-        - name: RandomRotate90
         - name: RandomRotate
           axes: [[0, 1]]
-          angle_spectrum: 15
+          angle_spectrum: 30
           mode: reflect
         - name: ElasticDeformation
           spline_order: 3
         - name: ToTensor
           expand_dims: true
       label:
-        - name: RandomRotate90
         - name: RandomRotate
           axes: [[0, 1]]
-          angle_spectrum: 15
+          angle_spectrum: 30
           mode: reflect
         - name: ElasticDeformation
           spline_order: 0

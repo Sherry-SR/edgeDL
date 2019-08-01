@@ -28,7 +28,7 @@ def save_checkpoint(state, is_best, checkpoint_dir, logger=None):
             f"Checkpoint directory does not exists. Creating {checkpoint_dir}")
         os.mkdir(checkpoint_dir)
 
-    last_file_path = os.path.join(checkpoint_dir, 'last_checkpoint.pytorch')
+    last_file_path = os.path.join(checkpoint_dir, 'last_checkpoint_iter'+str(state['num_iterations'])+'.pytorch')
     log_info(f"Saving last checkpoint to '{last_file_path}'")
     torch.save(state, last_file_path)
     if is_best:

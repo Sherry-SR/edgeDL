@@ -68,7 +68,7 @@ def predict(model, data_loader, output_file, config, logger):
     # Run predictions on the entire input dataset
     with torch.no_grad():
         for patch, index, target, t_index in data_loader:
-            logger.info(f'Predicting slice:{index}')
+            #logger.info(f'Predicting slice:{index}')
 
             # save patch index: (C,D,H,W)
             if prediction_channel is None:
@@ -87,13 +87,13 @@ def predict(model, data_loader, output_file, config, logger):
                 eval_criterion = get_evaluation_metric(config)
                 eval_score = eval_criterion(prediction, target)
                 eval_scores.append(eval_score)
-                logger.info(f'Current evaluation score: {np.nanmax(eval_score, axis = 1)}.')
+                #logger.info(f'Current evaluation score: {np.nanmax(eval_score, axis = 1)}.')
 
             # squeeze batch dimension and convert back to numpy array
             prediction = prediction.squeeze(dim=0).cpu().numpy()
             if prediction_channel is not None:
                 # use only the 'prediction_channel'
-                logger.info(f"Using channel '{prediction_channel}'...")
+                #logger.info(f"Using channel '{prediction_channel}'...")
                 prediction = np.expand_dims(prediction[prediction_channel], axis=0)
 
             # unpad in order to avoid block artifacts in the output probability maps
@@ -105,10 +105,10 @@ def predict(model, data_loader, output_file, config, logger):
 
     # save probability maps
     prediction_map = prediction_map / normalization_mask
-    logger.info(f'Testing finished. Average evaluation score: {np.nanmean(eval_scores, axis = 0)}. Saving predictions to: {output_file}...')
     affine = data_loader.dataset.affine
     prediction_map_save = np.transpose(np.floor(prediction_map * 1e4).astype(np.int16))
     nib.save(nib.Nifti1Image(prediction_map_save, affine), output_file)
+    return np.nanmean(eval_scores, axis = 0), len(eval_scores)
 
 def _get_output_file(dataset, folderpath = None, suffix='_predictions', ext = 'nii.gz'):
     filename = (os.path.basename(dataset.file_path)).split('.')[0]
@@ -148,12 +148,18 @@ def main():
 
     logger.info('Loading datasets...')
 
+    eval_score_avg = 0
+    count = 0
     for test_loader in get_test_loaders(config):
         logger.info(f"Processing '{test_loader.dataset.file_path}'...")
 
         output_file = _get_output_file(test_loader.dataset, folderpath=folderpath)
         # run the model prediction on the entire dataset and save to nifti image
-        predict(model, test_loader, output_file, config, logger)
+        eval_score, num = predict(model, test_loader, output_file, config, logger)
+        eval_score_avg = (eval_score_avg * count + eval_score * num) / (count + num)
+        count += num
+        logger.info(f'Testing finished. Average evaluation score: {eval_score}. Saving predictions to: {output_file}...')
+        logger.info(f'Total average evaluation score: {eval_score_avg}')
 
 if __name__ == '__main__':
     main()
