@@ -52,24 +52,12 @@ class MLS(LevelSetAlignmentBase):
     def _eval_singleK(self, gt_K, pK_Image, step_ckpts, lambda_, alpha, smoothing,
                       render_radius, is_gt_semantic, **kwargs):
 
-        def store_evolution_in(lst):
-            """Returns a callback function to store the evolution of the level sets in
-            the given list.
-            """
-
-            def _store(x, i):
-                if i in step_ckpts:
-                    lst.append(np.copy(x))
-
-            return _store
-
         # This way of checking mostly cares about speed. as I am assuming the whole GT is very sparse.
 
         all_zeros = not np.any(gt_K)
         # nothing to do
         if all_zeros:
-            out = [gt_K for _ in range(len(step_ckpts))]
-            return [out, out]
+            return gt_K
 
         if is_gt_semantic is False:
             # filling inside_ to represent the curve
@@ -80,20 +68,7 @@ class MLS(LevelSetAlignmentBase):
             init_ls = gt_K
             gt_K = seg2edges(gt_K, radius=render_radius)
 
-        if self.fn_debug is not None:
-            self.fn_debug(init_ls, 'init_ls')
-
-        # List with intermediate results to save the evolution
-        evolution = []
-        callback = store_evolution_in(evolution)
-
         h = self._compute_h(gt_K, pK_Image, lambda_, alpha)
-
-        if self.fn_debug is not None:
-            self.fn_debug(h, 'h')
-
-        #
-        n_iterations = step_ckpts[-1]  # equal to my last checkpoint
 
         if 'balloon' in kwargs:
             balloon = kwargs['balloon']
@@ -105,51 +80,23 @@ class MLS(LevelSetAlignmentBase):
         else:
             threshold = 0
 
-        morphological_geodesic_active_contour(h, n_iterations, init_ls,
-                                              smoothing=smoothing, balloon=balloon,
-                                              threshold=threshold,
-                                              iter_callback=callback)
+        evolution = morphological_geodesic_active_contour(h, step_ckpts, init_ls, smoothing=smoothing, balloon=balloon, threshold=threshold)
 
-        pixel_wise_evol = [seg2edges(evol, radius=render_radius) for evol in
-                           evolution]
+        return evolution
 
-        if 0 in step_ckpts:
-            # appending the original gt_K
-            # pixel_wise_evol.append(gt_K)
-            # evolution.append(init_ls)
-            # this can be appended it at the end as above... saving the shifting of the array.
-            # but I want to visualize
-            pixel_wise_evol.insert(0, gt_K)
-            evolution.insert(0, init_ls)
-        else:
-            pass
-            # ...
-
-        if self.fn_post_process_callback is None:
-            return [pixel_wise_evol, pixel_wise_evol]
-        else:
-            return [pixel_wise_evol, self.fn_post_process_callback(evolution, pixel_wise_evol)]
-
-    #
     def process_batch_fn(self, args):
         i, K, gt, pk = args
-        gt = gt[:,i,:,:]
-        pk = pk[:,i,:,:]
+        gt = gt[i]
+        pk = pk[i]
 
         gt_hat = []
-        gt_hat_pp = []
 
         for j in range(K):
             gtk = gt[j]
-            gt_hat_k, gt_hat_pp_k = self._eval_singleK(gtk, pk[j], **self.options_dict)
+            gt_hat_k = self._eval_singleK(gtk, pk[j], **self.options_dict)
             gt_hat.append(gt_hat_k)
 
-            if self.fn_post_process_callback is None:
-                gt_hat_pp.append(None)
-            else:
-                gt_hat_pp.append(gt_hat_pp_k)
-
-        return i, [np.stack(gt_hat, axis=0), np.stack(gt_hat_pp, axis=0)]  # KxLStepsxHxW
+        return np.stack(gt_hat, axis=0)  # KxHxW
 
     def process_batch_hack_multicpu(self, args):
         i, K, mem_id_gt, mem_id_pk, = args
@@ -226,32 +173,14 @@ class MLS(LevelSetAlignmentBase):
             pk = pk.cpu().numpy()
 
         assert gt.shape == pk.shape
-        K, D, H, W = pk.shape
+        N, K, H, W = pk.shape
 
-        if D * K > 1 and self.n_workers > 1:
+        if N * K > 1 and self.n_workers > 1:
             output_ = self._multi_cpu_call_2(gt, pk)
         else:
             output_ = []
-            for i in range(D):
-                idx, gt_hat = self.process_batch_fn((i, K, gt, pk))
-                output_.append((idx, gt_hat))
+            for i in range(N):
+                gt_hat = self.process_batch_fn((i, K, gt, pk))
+                output_.append(gt_hat)
 
-        # checking batch order ... it shouldnt be needed it, but  dont wanna have nasty surprises.
-        # maybe remove in the future, remove idx from the output in process_batch_fn and this is not needed.
-
-        verified_output = []
-        verified_output_pp = []
-        for i in range(len(output_)):
-            assert output_[i][0] == i
-
-            output_i1 = output_[i][1][0]
-            verified_output.append(output_i1)
-
-            if self.fn_post_process_callback is not None:
-                verified_output_pp.append(output_[i][1][1])
-        #
-
-        if self.fn_post_process_callback is not None:
-            return np.stack(verified_output, axis=1), np.stack(verified_output_pp, axis=1)
-        else:
-            return np.stack(verified_output, axis=1), None  # NxKxLStepsxHxW
+        return np.stack(output_, axis=0) # NxKxLStepsxHxW

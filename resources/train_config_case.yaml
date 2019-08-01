@@ -24,6 +24,10 @@ trainer:
   log_after_iters: 50
   # how many iterations evaluated in validations
   validate_iters: null
+  # how many iterations before start level set alignment
+  align_start_iters: 20000
+  # how many iterations between level set alignment
+  align_after_iters: 5000
   # max number of epochs
   epochs: 100
   # max number of iterations
@@ -53,6 +57,20 @@ lr_scheduler:
   name: MultiStepLR
   milestones: [10, 30, 60]
   gamma: 0.2
+# configuration for level set alignment
+level_set:
+  lambda_: 0.2
+  alpha: 1
+  smoothing: 1
+  render_radius: 1
+  is_gt_semantic: True
+  method: 'MLS'
+  balloon: 0
+  threshold: 0.95
+  step_ckpts: 50
+  batch_size: 16
+  prefix: '/mnt/lustre/shenrui/data/pelvis_predict_BCE'
+  n_workers: 8
 # data loaders configuration
 loaders:
   # train patch size given to the network (adapt to fit in your GPU mem, generally the bigger patch the better)

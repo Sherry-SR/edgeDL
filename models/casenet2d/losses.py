@@ -320,18 +320,18 @@ def flatten(tensor):
 
 def expand_as_one_hot(input, C, ignore_index=None):
     """
-    Converts NxDxHxW label image to NxCxDxHxW, where each label gets converted to its corresponding one-hot vector
-    :param input: 4D input image (NxDxHxW)
+    Converts NxHxW label image to NxCxHxW, where each label gets converted to its corresponding one-hot vector
+    :param input: 3D input image (NxHxW)
     :param C: number of channels/labels
     :param ignore_index: ignore index to be kept during the expansion
-    :return: 5D output image (NxCxDxHxW)
+    :return: 5D output image (NxCxHxW)
     """
     shape = input.size()
     shape = list(shape)
     shape.insert(1, C+1)
     shape = tuple(shape)
 
-    # expand the input tensor to Nx1xDxHxW
+    # expand the input tensor to Nx1xHxW
     src = input.unsqueeze(1)
 
     if ignore_index is not None:

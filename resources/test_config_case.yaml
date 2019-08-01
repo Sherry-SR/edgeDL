@@ -34,7 +34,7 @@ loaders:
   num_workers: 8
   # paths to the datasets
   test_path:
-    - '/mnt/lustre/shenrui/data/pelvis_resampled/dataset_val.txt'
+    - '/mnt/lustre/shenrui/data/pelvis_resampled/dataset_test.txt'
   transformer:
     test:
       raw:

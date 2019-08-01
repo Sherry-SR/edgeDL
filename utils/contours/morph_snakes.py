@@ -281,7 +281,7 @@ def morphological_geodesic_active_contour(gimage, iterations,
 
     u = np.int8(init_level_set > 0)
 
-    iter_callback(u, -1)
+    iter_callback(u)
 
     for i in range(1, iterations + 1):
 
@@ -308,6 +308,6 @@ def morphological_geodesic_active_contour(gimage, iterations,
         for _ in range(smoothing):
             u = _curvop(u)
 
-        iter_callback(u, i)
+        iter_callback(u)
 
     return u

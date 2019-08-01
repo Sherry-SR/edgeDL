@@ -29,19 +29,18 @@ import utils.contours.cutils as cutils
 
 
 class LevelSetAlignmentBase:
-    def __init__(self, fn_post_process_callback=None, n_workers=1, fn_debug=None, config=None):
+    def __init__(self, n_workers=1, config=None):
         """
 
         :param fn_post_process_callback: function signature fn(evolution, pixel_wise_evol), does postprocessing inside the thread
         :param n_workers: number of worker.
         :param fn_debug: usually a function fn(image,str)... maybe a wrapper to plot.imshow(image,title)
         """
-        self.fn_post_process_callback = fn_post_process_callback
         self.n_workers = n_workers
 
         if config is None:
             self.options_dict = {
-                'step_ckpts': (0, 25, 50),
+                'step_ckpts': 50,
                 'lambda_': 0.2,
                 'alpha': 1.0,
                 'smoothing': 2,
@@ -52,7 +51,6 @@ class LevelSetAlignmentBase:
             }
         else:
             self.options_dict = config
-        self.fn_debug = fn_debug
         self.history = None
         print(' LevelSetAlignment config: ', self.options_dict)
 
@@ -68,7 +66,7 @@ class LevelSetAlignmentBase:
         raise NotImplementedError()
 
 
-def LevelSetAlignment(fn_post_process_callback=None, n_workers=1, fn_debug=None, config=None, method=None):
+def LevelSetAlignment(n_workers=1, config=None, method=None):
     import utils.contours.ContourBox_MLS
     _LevelSets = {
         'MLS': utils.contours.ContourBox_MLS.MLS,
@@ -81,4 +79,4 @@ def LevelSetAlignment(fn_post_process_callback=None, n_workers=1, fn_debug=None,
     else:
         clss_cllback = _LevelSets[config['method']]
     print('LevelSet Alignment n_workers: ', n_workers)
-    return clss_cllback(fn_post_process_callback, n_workers, fn_debug, config)
+    return clss_cllback(n_workers, config)

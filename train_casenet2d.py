@@ -17,6 +17,7 @@ from utils.databuilder import get_train_loaders
 def _create_trainer(config, model, optimizer, lr_scheduler, loss_criterion, eval_criterion, loaders, logger):
     assert 'trainer' in config, 'Could not find trainer configuration'
     trainer_config = config['trainer']
+    level_set_config = config['level_set']
 
     resume = trainer_config.get('resume', None)
     pre_trained = trainer_config.get('pre_trained', None)
@@ -27,6 +28,9 @@ def _create_trainer(config, model, optimizer, lr_scheduler, loss_criterion, eval
         return NNTrainer.from_checkpoint(resume, model,
                                              optimizer, lr_scheduler, loss_criterion,
                                              eval_criterion, loaders,
+                                             align_start_iters = trainer_config['align_start_iters'],
+                                             align_after_iters = trainer_config['align_after_iters'],
+                                             level_set_config = level_set_config,
                                              logger=logger)
     elif pre_trained is not None:
         # fine-tune a given pre-trained model
@@ -36,7 +40,9 @@ def _create_trainer(config, model, optimizer, lr_scheduler, loss_criterion, eval
                                              max_num_iterations=trainer_config['iters'],
                                              validate_after_iters=trainer_config['validate_after_iters'],
                                              log_after_iters=trainer_config['log_after_iters'],
+                                             align_start_iters = trainer_config['align_start_iters'], align_after_iters = trainer_config['align_after_iters'],
                                              eval_score_higher_is_better=trainer_config['eval_score_higher_is_better'],
+                                             level_set_config = level_set_config,
                                              logger=logger, validate_iters = validate_iters)
     else:
         # start training from scratch
@@ -46,7 +52,9 @@ def _create_trainer(config, model, optimizer, lr_scheduler, loss_criterion, eval
                              max_num_iterations=trainer_config['iters'],
                              validate_after_iters=trainer_config['validate_after_iters'],
                              log_after_iters=trainer_config['log_after_iters'],
+                             align_start_iters = trainer_config['align_start_iters'], align_after_iters = trainer_config['align_after_iters'],
                              eval_score_higher_is_better=trainer_config['eval_score_higher_is_better'],
+                             level_set_config=level_set_config,
                              logger=logger, validate_iters = validate_iters)
 
 

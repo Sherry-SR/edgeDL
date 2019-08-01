@@ -10,6 +10,9 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 from utils.helper import RunningAverage, save_checkpoint, load_checkpoint, get_logger
 
+from utils.contours import ContourBox
+import nibabel as nib
+
 class NNTrainer:
     """3D UNet trainer.
 
@@ -43,7 +46,9 @@ class NNTrainer:
                  max_num_epochs=100, max_num_iterations=None,
                  validate_after_iters=100, log_after_iters=100,
                  validate_iters=None, num_iterations=1, num_epoch=0,
+                 align_start_iters = None, align_after_iters = None,
                  eval_score_higher_is_better=True, best_eval_score=None,
+                 level_set_config = None,
                  logger=None):
         if logger is None:
             self.logger = get_logger('UNet3DTrainer', level=logging.DEBUG)
@@ -64,7 +69,10 @@ class NNTrainer:
         self.validate_after_iters = validate_after_iters
         self.log_after_iters = log_after_iters
         self.validate_iters = validate_iters
+        self.align_start_iters = align_start_iters
+        self.align_after_iters = align_after_iters
         self.eval_score_higher_is_better = eval_score_higher_is_better
+        self.level_set_config = level_set_config
         logger.info(f'eval_score_higher_is_better: {eval_score_higher_is_better}')
 
         if best_eval_score is not None:
@@ -83,7 +91,7 @@ class NNTrainer:
 
     @classmethod
     def from_checkpoint(cls, checkpoint_path, model, optimizer, lr_scheduler, loss_criterion, eval_criterion, loaders,
-                        logger=None):
+                        align_start_iters = None, align_after_iters = None, level_set_config = None, logger=None):
         logger.info(f"Loading checkpoint '{checkpoint_path}'...")
         state = load_checkpoint(checkpoint_path, model, optimizer)
         logger.info(
@@ -102,6 +110,9 @@ class NNTrainer:
                    validate_after_iters=state['validate_after_iters'],
                    log_after_iters=state['log_after_iters'],
                    validate_iters=state['validate_iters'],
+                   align_start_iters = align_start_iters,
+                   align_after_iters = align_after_iters,
+                   level_set_config = level_set_config,
                    logger=logger)
 
     @classmethod
@@ -110,7 +121,9 @@ class NNTrainer:
                         max_num_epochs=100, max_num_iterations=1e5,
                         validate_after_iters=100, log_after_iters=100,
                         validate_iters=None, num_iterations=1, num_epoch=0,
+                        align_start_iters = None, align_after_iters = None,
                         eval_score_higher_is_better=True, best_eval_score=None,
+                        level_set_config = None,
                         logger=None):
         logger.info(f"Logging pre-trained model from '{pre_trained}'...")
         load_checkpoint(pre_trained, model, None)
@@ -127,6 +140,9 @@ class NNTrainer:
                    validate_after_iters=validate_after_iters,
                    log_after_iters=log_after_iters,
                    validate_iters=validate_iters,
+                   align_start_iters = align_start_iters,
+                   align_after_iters = align_after_iters,
+                   level_set_config = level_set_config,
                    logger=logger)
 
     def fit(self):
@@ -160,6 +176,10 @@ class NNTrainer:
             self.log_after_iters = 1
         if self.max_num_iterations is None:
             self.max_num_iterations = self.max_num_epochs * len(train_loader)
+        if self.align_start_iters is None:
+            self.align_start_iters = self.max_num_iterations
+        if self.align_after_iters is None:
+            self.align_after_iters = self.max_num_iterations
 
         for i, t in enumerate(train_loader):
             input, target, weight = self._split_training_batch(t)
@@ -180,6 +200,9 @@ class NNTrainer:
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
+
+            if (self.num_iterations >= self.align_start_iters) and (self.num_iterations % self.align_after_iters == 0):
+                self.loaders['train'] = self.align(self.loaders['train'])
 
             if self.num_iterations % self.validate_after_iters == 0:
                 # evaluate on validation set
@@ -252,6 +275,55 @@ class NNTrainer:
                 self._log_stats('val', val_losses.avg, val_scores.avg)
                 self.logger.info(f'Validation finished. Loss: {val_losses.avg}. Evaluation score: {val_scores.avg}')
                 return val_scores.avg
+        finally:
+            # set back in training mode
+            self.model.train()
+
+    def align(self, loader):
+        self.logger.info(f'Level set alignment... ')
+        if self.level_set_config is None:
+            self.level_set_config = {
+                'lambda_': 0.2,
+                'alpha': 1,
+                'smoothing': 1,
+                'render_radius': 1,
+                'is_gt_semantic': True,
+                'method': 'MLS',
+                'balloon': 0,
+                'threshold': 0.95,
+                'step_ckpts': 50,
+                'batch_size': 16,
+                'prefix': None,
+                'n_workers': 8
+            }
+        if self.level_set_config['prefix'] is not None:
+            folderpath = self.level_set_config['prefix']+str(self.num_iterations)
+            if not os.path.exists(folderpath):
+                os.mkdir(folderpath)
+        n_workers = self.level_set_config.get('n_workers', 0)
+        cbox = ContourBox.LevelSetAlignment(n_workers=n_workers, config=self.level_set_config)
+        datasets = loader.dataset.datasets
+        try:
+            # set the model in evaluation mode; final_activation doesn't need to be called explicitly
+            self.model.eval()
+            with torch.no_grad():
+                for i in tqdm(range(len(datasets))):
+                    iz, iy, ix = datasets[i].raw.shape
+                    affine = datasets[i].affine
+                    batch_size = self.level_set_config.get('betch_size', 16)
+                    for js in range(0, iz, batch_size):
+                        je = min(iz, js+batch_size)
+                        idx = slice(js, je)
+                        input = torch.from_numpy(np.expand_dims((datasets[i].raw[idx]).astype(np.float32), axis = 1)).to(self.device)
+                        pred = torch.sigmoid(self.model(input))
+                        gt = self._expand_as_one_hot(torch.from_numpy((datasets[i].label[idx]).astype(np.long)).to(self.device), pred.shape[1])
+                        output = cbox({'seg': gt, 'bdry': None}, pred)
+                        output = np.multiply(np.sum(output, axis=1) > 0, np.argmax(output, axis=1) + 1)
+                        loader.dataset.datasets[i].label[idx] = output
+                    if self.level_set_config['prefix'] is not None:
+                        output_file = self._get_output_file(datasets[i], folderpath=folderpath, suffix='_refine')
+                        nib.save(nib.Nifti1Image((np.transpose(loader.dataset.datasets[i].label).astype(np.int16)), affine), output_file)
+                return loader
         finally:
             # set back in training mode
             self.model.train()
@@ -382,3 +454,27 @@ class NNTrainer:
             return input[0].size(0)
         else:
             return input.size(0)
+
+    @staticmethod
+    def _get_output_file(dataset, folderpath = None, suffix='_predictions', ext = 'nii.gz'):
+        filename = (os.path.basename(dataset.file_path)).split('.')[0]
+        if folderpath is None:
+            folderpath = os.path.dirname(dataset.file_path)
+        return f'{os.path.join(folderpath, filename)}{suffix}.{ext}'
+
+    @staticmethod
+    def _expand_as_one_hot(input, C):
+        """
+        Converts NxDxHxW label image to NxCxDxHxW, where each label gets converted to its corresponding one-hot vector
+        """
+        assert input.dim() == 4
+
+        shape = input.size()
+        shape = list(shape)
+        shape.insert(1, C)
+        shape = tuple(shape)
+
+        # expand the input tensor to Nx1xDxHxW
+        src = input.unsqueeze(0)
+        # scatter to get the one-hot tensor
+        return torch.zeros(shape).to(input.device).scatter_(1, src, 1)
