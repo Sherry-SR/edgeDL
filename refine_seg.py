@@ -167,9 +167,7 @@ def do_it(args):
 
     affine = gt_img.affine
 
-    cbox = ContourBox.LevelSetAlignment(n_workers=0,
-                                        fn_post_process_callback=None,
-                                        config=level_set_config_dict)
+    cbox = ContourBox.LevelSetAlignment(n_workers=0, config=level_set_config_dict)
 
     #mask_generator = GenerateGT_PNGMask(classes_to_keep, args.output_dir)
 

@@ -4,6 +4,7 @@ import argparse
 import torch
 import torch.optim as optim
 from torch.optim.lr_scheduler import ReduceLROnPlateau
+import torch.nn as nn
 
 from utils.config import load_config
 from models.casenet2d.losses import get_loss_criterion
@@ -27,7 +28,7 @@ def _create_trainer(config, model, optimizer, lr_scheduler, loss_criterion, eval
         # continue training from a given checkpoint
         return NNTrainer.from_checkpoint(resume, model,
                                              optimizer, lr_scheduler, loss_criterion,
-                                             eval_criterion, loaders,
+                                             eval_criterion, config['device'], loaders,
                                              align_start_iters = trainer_config['align_start_iters'],
                                              align_after_iters = trainer_config['align_after_iters'],
                                              level_set_config = level_set_config,
@@ -101,9 +102,12 @@ def main():
         torch.backends.cudnn.benchmark = False
 
     # Create the model
-    model = get_model(config)
+    if torch.cuda.device_count() > 1:
+        model = nn.DataParallel(get_model(config))
+    else:
+        model = get_model(config)
     # put the model on GPUs
-    logger.info(f"Sending the model to '{config['device']}'")
+    logger.info(f"Sending the model to '{config['device']}', using {torch.cuda.device_count()} GPUs...")
     model = model.to(config['device'])
     # Log the number of learnable parameters
     logger.info(f'Number of learnable params {get_number_of_learnable_parameters(model)}')

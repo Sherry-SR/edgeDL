@@ -1,5 +1,5 @@
 # use a fixed random seed to guarantee that when you run the code twice you will get the same outcome
-manual_seed: 0
+manual_seed: null
 # model configuration
 model:
   # model class
@@ -17,7 +17,7 @@ trainer:
   # path to the checkpoint directory
   checkpoint_dir: /mnt/lustre/shenrui/project/edgeDL/checkpoints/pelvis/casenet2d
   # path to latest checkpoint; if provided the training will be resumed from that checkpoint
-  resume: null
+  resume: /mnt/lustre/shenrui/project/edgeDL/checkpoints/pelvis/casenet2d/last_checkpoint_iter20000.pytorch
   # how many iterations between validations
   validate_after_iters: 5000
   # how many iterations between tensorboard logging

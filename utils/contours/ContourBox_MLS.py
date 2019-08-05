@@ -154,6 +154,7 @@ class MLS(LevelSetAlignmentBase):
         output_ = pool.map(self.process_batch_hack_multicpu,
                            [(i, 1, id(gt), id(pk)) for i in range(N * K)])
 
+        output_ = np.reshape(output_, [N, K, H, W])
         pool.close()
         pool.join()
         # we need to reorder the array to make it compatible with the rest of the api.

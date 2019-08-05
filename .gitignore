@@ -6,6 +6,7 @@
 /models/__pycache__/*
 /models/unet3d/__pycache__/*
 /models/casenet2d/__pycache__/*
+/models/casenet3d/__pycache__/*
 /tests/__pycache__/*
 /utils/__pycache__/*
 /utils/contours/__pycache__/*

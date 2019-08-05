@@ -2,7 +2,7 @@ import os
 import torch
 import yaml
 
-DEFAULT_DEVICE = 'cuda:0'
+DEFAULT_DEVICE = 'cuda'
 
 
 def load_config(config_file):

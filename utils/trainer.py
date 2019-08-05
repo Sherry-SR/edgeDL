@@ -90,7 +90,7 @@ class NNTrainer:
         self.num_epoch = num_epoch
 
     @classmethod
-    def from_checkpoint(cls, checkpoint_path, model, optimizer, lr_scheduler, loss_criterion, eval_criterion, loaders,
+    def from_checkpoint(cls, checkpoint_path, model, optimizer, lr_scheduler, loss_criterion, eval_criterion, device, loaders,
                         align_start_iters = None, align_after_iters = None, level_set_config = None, logger=None):
         logger.info(f"Loading checkpoint '{checkpoint_path}'...")
         state = load_checkpoint(checkpoint_path, model, optimizer)
@@ -99,8 +99,7 @@ class NNTrainer:
         checkpoint_dir = os.path.split(checkpoint_path)[0]
         return cls(model, optimizer, lr_scheduler,
                    loss_criterion, eval_criterion,
-                   torch.device(state['device']),
-                   loaders, checkpoint_dir,
+                   device, loaders, checkpoint_dir,
                    eval_score_higher_is_better=state['eval_score_higher_is_better'],
                    best_eval_score=state['best_eval_score'],
                    num_iterations=state['num_iterations'],
@@ -200,9 +199,7 @@ class NNTrainer:
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
-
-            if (self.num_iterations >= self.align_start_iters) and (self.num_iterations % self.align_after_iters == 0):
-                self.loaders['train'] = self.align(self.loaders['train'])
+            
 
             if self.num_iterations % self.validate_after_iters == 0:
                 # evaluate on validation set
@@ -233,6 +230,9 @@ class NNTrainer:
 
                 train_losses = RunningAverage()
                 train_eval_scores = RunningAverage()
+
+            if (self.num_iterations >= self.align_start_iters) and (self.num_iterations % self.align_after_iters == 0):
+                self.loaders['train'] = self.align(self.loaders['train'])
 
             if self.max_num_iterations < self.num_iterations:
                 self.logger.info(
@@ -368,10 +368,14 @@ class NNTrainer:
         return is_best
 
     def _save_checkpoint(self, is_best):
+        if torch.cuda.device_count() > 1:
+            model_state = self.model.module.state_dict()
+        else:
+            model_state = self.model.state_dict()
         save_checkpoint({
             'epoch': self.num_epoch + 1,
             'num_iterations': self.num_iterations,
-            'model_state_dict': self.model.state_dict(),
+            'model_state_dict': model_state,
             'best_eval_score': self.best_eval_score,
             'eval_score_higher_is_better': self.eval_score_higher_is_better,
             'optimizer_state_dict': self.optimizer.state_dict(),
@@ -464,17 +468,11 @@ class NNTrainer:
 
     @staticmethod
     def _expand_as_one_hot(input, C):
-        """
-        Converts NxDxHxW label image to NxCxDxHxW, where each label gets converted to its corresponding one-hot vector
-        """
-        assert input.dim() == 4
-
         shape = input.size()
         shape = list(shape)
-        shape.insert(1, C)
+        shape.insert(1, C+1)
         shape = tuple(shape)
 
-        # expand the input tensor to Nx1xDxHxW
-        src = input.unsqueeze(0)
-        # scatter to get the one-hot tensor
-        return torch.zeros(shape).to(input.device).scatter_(1, src, 1)
+        # expand the input tensor to Nx1xHxW
+        src = input.unsqueeze(1)
+        return torch.zeros(shape).to(input.device).scatter_(1, src, 1)[:, 1:, :, :]
