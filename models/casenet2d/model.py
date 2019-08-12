@@ -390,14 +390,3 @@ def conv3x3(in_planes, out_planes, stride=1):
     "3x3 convolution with padding"
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
                      padding=1, bias=False)
-
-def get_model(config):
-    def _model_class(class_name):
-        m = importlib.import_module('models.casenet2d.model')
-        clazz = getattr(m, class_name)
-        return clazz
-
-    assert 'model' in config, 'Could not find model configuration'
-    model_config = config['model']
-    model_class = _model_class(model_config['name'])
-    return model_class(**model_config)

@@ -5,7 +5,7 @@ import torch
 import torch.nn.functional as F
 from skimage import measure
 
-from models.casenet2d.losses import compute_per_channel_dice, expand_as_one_hot
+from models.casenet3d.losses import compute_per_channel_dice, expand_as_one_hot
 from utils.helper import get_logger, adapted_rand
 import warnings
 warnings.filterwarnings("ignore")
@@ -189,22 +189,29 @@ class STEALEdgeLoss:
     def __call__(self, input, target):
         """
         Computes STEAL edge loss
-        :param input: 4D input tensor (NCHW)
-        :param target: 3D target tensor (NHW)
+        :param input: 4D input tensor (NCHW) or 5D input tensor (NCDHW)
+        :param target: 3D target tensor (NHW) or 4D input tensor (NDHW)
         :return: STEALEdgeLoss
         """
         n_classes = input.size()[1]
         if target.dim() < input.dim():
             target = expand_as_one_hot(target, C=n_classes, ignore_index=self.ignore_index)
-        weight_sum = target.sum(dim=1).sum(dim=1).sum(dim=1)
-        edge_weight = weight_sum / (target.size()[2] * target.size()[3])
-        edge_weight = edge_weight.unsqueeze(1).unsqueeze(2).unsqueeze(3)
+        if target.dim() == 4:
+            weight_sum = target.sum(dim=1).sum(dim=1).sum(dim=1)
+            edge_weight = weight_sum.float() / (target.size()[2] * target.size()[3])
+            edge_weight = edge_weight.unsqueeze(1).unsqueeze(2).unsqueeze(3)
+        elif target.dim() == 5:
+            weight_sum = target.sum(dim=1).sum(dim=1).sum(dim=1).sum(dim=1)
+            edge_weight = weight_sum.float() / (target.size()[2] * target.size()[3] * target.size()[4])
+            edge_weight = edge_weight.unsqueeze(1).unsqueeze(2).unsqueeze(3).unsqueeze(4)
+        else:
+            raise ValueError(f"Unsupported dimensions '{target.dim()}'")
         non_edge_weight = 1 - edge_weight
 
         one_sigmoid_out = torch.sigmoid(input)
         zero_sigmoid_out = 1 - one_sigmoid_out
 
-        loss = - non_edge_weight * target * torch.log(one_sigmoid_out.clamp(min = 1e-10)) -  edge_weight * (1 - target) * torch.log(zero_sigmoid_out.clamp(min = 1e-10))
+        loss = - non_edge_weight.clamp(min = 1e-10) * target.float() * torch.log(one_sigmoid_out.clamp(min = 1e-10)) - edge_weight.clamp(min = 1e-10) * (1 - target.float()) * torch.log(zero_sigmoid_out.clamp(min = 1e-10))
 
         return (loss.mean(dim = 0)).sum()
 
@@ -216,7 +223,7 @@ def get_evaluation_metric(config):
     """
 
     def _metric_class(class_name):
-        m = importlib.import_module('models.casenet2d.metrics')
+        m = importlib.import_module('models.casenet3d.metrics')
         clazz = getattr(m, class_name)
         return clazz
 

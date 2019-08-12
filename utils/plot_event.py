@@ -22,15 +22,13 @@ def parse_events_file(path: str) -> pd.DataFrame:
                 if (metrics.get(v.tag) is None):
                     metrics[v.tag] = [None] * step
                 metrics[v.tag][step - 1] = v.simple_value
-        if step == 100000:
-            count += 1
         if count == 2:
             break
     metrics_df = pd.DataFrame({k: v for k,v in metrics.items() if len(v) > 1})
     return metrics_df
 
 
-dataset = parse_events_file(path = './checkpoints/pelvis/casenet2d/logs/events.out.tfevents.1564476831.SH-IDC1-10-5-38-155')
+dataset = parse_events_file(path = './checkpoints/pelvis/casenet3d/logs/events.out.tfevents.1565591779.SH-IDC1-10-5-38-156')
 dataset[['train_eval_score_avg', 'val_eval_score_avg']].interpolate().plot()
 dataset[['train_loss_avg', 'val_loss_avg']].interpolate().plot()
 plt.show()

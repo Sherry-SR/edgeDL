@@ -1,5 +1,7 @@
 # use a fixed random seed to guarantee that when you run the code twice you will get the same outcome
 manual_seed: null
+# Network input sample dimension
+dim: 3
 # model configuration
 model:
   # model class
@@ -9,25 +11,25 @@ model:
   # number of output classes
   out_channels: 5
   # set layers
-  layers: [3, 4, 23, 3]
+  layers: [3, 4, 6, 3]
   # apply element-wise nn.Sigmoid after the final 1x1 convolution, otherwise apply nn.Softmax
   final_sigmoid: False
 # trainer configuration
 trainer:
   # path to the checkpoint directory
-  checkpoint_dir: /mnt/lustre/shenrui/project/edgeDL/checkpoints/pelvis/casenet2d
+  checkpoint_dir: /mnt/lustre/shenrui/project/edgeDL/checkpoints/pelvis/casenet3d
   # path to latest checkpoint; if provided the training will be resumed from that checkpoint
-  resume: /mnt/lustre/shenrui/project/edgeDL/checkpoints/pelvis/casenet2d/last_checkpoint_iter20000.pytorch
+  resume: null
   # how many iterations between validations
-  validate_after_iters: 5000
+  validate_after_iters: 500
   # how many iterations between tensorboard logging
-  log_after_iters: 50
+  log_after_iters: 1
   # how many iterations evaluated in validations
   validate_iters: null
   # how many iterations before start level set alignment
-  align_start_iters: 20000
+  align_start_iters: 5000
   # how many iterations between level set alignment
-  align_after_iters: 5000
+  align_after_iters: 1000
   # max number of epochs
   epochs: 100
   # max number of iterations
@@ -59,7 +61,7 @@ lr_scheduler:
   gamma: 0.2
 # configuration for level set alignment
 level_set:
-  dim: 2
+  dim: 3
   lambda_: 0.1
   alpha: 1
   sigma: 1
@@ -70,19 +72,19 @@ level_set:
   balloon: 0
   threshold: 0.95
   step_ckpts: 50
-  dz: 16
-  prefix: '/mnt/lustre/shenrui/data/pelvis_predict_BCE'
-  n_workers: 8
+  dz: 32
+  prefix: '/mnt/lustre/shenrui/data/3D_pelvis_predict_BCE'
+  n_workers: 16
 # data loaders configuration
 loaders:
   # train patch size given to the network (adapt to fit in your GPU mem, generally the bigger patch the better)
-  train_patch: [350, 350]
+  train_patch: [8, 350, 350]
   # train stride between patches
-  train_stride: [100, 100]
+  train_stride: [4, 200, 200]
   # validation patch (can be bigger than train patch since there is no backprop)
-  val_patch: [350, 350]
+  val_patch: [8, 350, 350]
   # validation stride (validation patches doesn't need to overlap)
-  val_stride: [350, 350]
+  val_stride: [8, 350, 350]
   # clip value within the range
   clip_val: [-1000, 2000]
   # paths to the training datasets
@@ -94,14 +96,14 @@ loaders:
   # how many subprocesses to use for data loading
   num_workers: 8
   # batch size in training process
-  batch_size: 4
+  batch_size: 8
   # data transformations/augmentations
   transformer:
     train:
       raw:
         - name: ClipNormalize
         - name: RandomRotate
-          axes: [[0, 1]]
+          axes: [[2, 1]]
           angle_spectrum: 30
           mode: reflect
         - name: ElasticDeformation
@@ -110,12 +112,14 @@ loaders:
           expand_dims: true
       label:
         - name: RandomRotate
-          axes: [[0, 1]]
+          axes: [[2, 1]]
           angle_spectrum: 30
           mode: reflect
         - name: ElasticDeformation
           spline_order: 0
         - name: SegToEdge
+          out_channels: 5
+          radius: 1
         - name: ToTensor
           expand_dims: false
           dtype: 'long'
@@ -126,6 +130,8 @@ loaders:
           expand_dims: true
       label:
         - name: SegToEdge
+          out_channels: 5
+          radius: 1
         - name: ToTensor
           expand_dims: false
           dtype: 'long'

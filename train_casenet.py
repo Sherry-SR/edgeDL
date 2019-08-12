@@ -7,9 +7,6 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 import torch.nn as nn
 
 from utils.config import load_config
-from models.casenet2d.losses import get_loss_criterion
-from models.casenet2d.metrics import get_evaluation_metric
-from models.casenet2d.model import get_model
 from utils.trainer import NNTrainer
 from utils.helper import get_logger, get_number_of_learnable_parameters
 
@@ -81,12 +78,23 @@ def _create_lr_scheduler(config, optimizer):
         lr_config['optimizer'] = optimizer
         return clazz(**lr_config)
 
+def _get_model(module_path, config):
+    def _model_class(module_path, class_name):
+        m = importlib.import_module(module_path)
+        clazz = getattr(m, class_name)
+        return clazz
+
+    assert 'model' in config, 'Could not find model configuration'
+    model_config = config['model']
+    model_class = _model_class(module_path, model_config['name'])
+    return model_class(**model_config)
+
 def main():
     # Create main logger
-    logger = get_logger('CASENet2DTrainer')
+    logger = get_logger('CASENetTrainer')
 
-    parser = argparse.ArgumentParser(description='CASENet2D training')
-    parser.add_argument('--config', type=str, help='Path to the YAML config file', default='/home/SENSETIME/shenrui/Dropbox/SenseTime/edgeDL/resources/train_config_backup.yaml')
+    parser = argparse.ArgumentParser(description='CASENet training')
+    parser.add_argument('--config', type=str, help='Path to the YAML config file', default='/home/SENSETIME/shenrui/Dropbox/SenseTime/edgeDL/resources/train_config_3Dbackup.yaml')
     args = parser.parse_args()
 
     # Load and log experiment configuration
@@ -101,11 +109,23 @@ def main():
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
 
+    dim = config.get('dim', None)
+    if dim == 2:
+        from models.casenet2d.losses import get_loss_criterion
+        from models.casenet2d.metrics import get_evaluation_metric
+        module_path = 'models.casenet2d.model'
+    elif dim == 3:
+        from models.casenet3d.losses import get_loss_criterion
+        from models.casenet3d.metrics import get_evaluation_metric
+        module_path = 'models.casenet3d.model'
+    else:
+        raise ValueError(f"Unsupported dimensions '{dim}'")
+
     # Create the model
     if torch.cuda.device_count() > 1:
-        model = nn.DataParallel(get_model(config))
+        model = nn.DataParallel(_get_model(module_path, config))
     else:
-        model = get_model(config)
+        model = _get_model(module_path, config)
     # put the model on GPUs
     logger.info(f"Sending the model to '{config['device']}', using {torch.cuda.device_count()} GPUs...")
     model = model.to(config['device'])

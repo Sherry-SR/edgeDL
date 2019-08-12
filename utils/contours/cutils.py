@@ -1,3 +1,5 @@
+# Modified by Rui Shen, 08/08/2019
+
 # Copyright (c) 2019, NVIDIA CORPORATION. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -26,6 +28,7 @@
 
 import numpy as np
 from scipy.ndimage.morphology import distance_transform_edt
+from scipy.ndimage import gaussian_filter
 import torch
 
 
@@ -53,7 +56,7 @@ def update_callback_in_image(image):
 
 def seg2edges(image, radius):
     """
-    :param image: semantic map should be HxWx1 with values 0,1,label_ignores
+    :param image: semantic map should be HxW with values 0,1,label_ignores
     :param radius: radius size
     :param label_ignores: values to mask.
     :return: edgemap with boundary computed based on radius
@@ -103,32 +106,11 @@ def seg2edges_2d(image, radius):
     return dist
 
 
-def compute_h_additive(gt_K, pK_Image, lambda_, alpha):
+def compute_h_additive(gt_K, pK_Image, lambda_, alpha, sigma = 1):
     # normalizing pK_image so that's [0..1]
-    #pK_Image = pK_Image / (np.max(pK_Image) + 1e-5)
-    pK_Image = pK_Image / 10000
+    pK_Image = pK_Image / (np.max(pK_Image) + 1e-5)
 
     gPimage = 1.0 / np.sqrt(1.0 + alpha * pK_Image)
-    gpGT = 1.0 / np.sqrt(1.0 + alpha * gt_K)
-    gTotal = gPimage + lambda_ * gpGT
-    return gTotal
-
-
-def compute_h_additive_torch(gt_K, pK_Image, lambda_, alpha):
-    # normalizing pK_image so that's [0..1]
-    pK_Image = pK_Image / (torch.max(pK_Image) + 1e-5)
-
-    gPimage = 1.0 / torch.sqrt(1.0 + alpha * pK_Image)
-    gpGT = 1.0 / torch.sqrt(1.0 + alpha * gt_K)
-    gTotal = gPimage + lambda_ * gpGT
-    return gTotal
-
-
-def compute_h_caselles_torch(gt_K, pK_Image, lambda_, alpha):
-    # normalizing pK_image so that's [0..1]
-    pK_Image = pK_Image / (torch.max(pK_Image) + 1e-5)
-
-    gPimage = 1.0 / (1.0 + alpha * pK_Image)
-    gpGT = 1.0 / (1.0 + alpha * gt_K)
+    gpGT = 1.0 / np.sqrt(1.0 + alpha * gaussian_filter(gt_K, sigma = sigma))
     gTotal = gPimage + lambda_ * gpGT
     return gTotal

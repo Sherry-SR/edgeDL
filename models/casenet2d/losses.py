@@ -195,6 +195,7 @@ class STEALEdgeLoss(nn.Module):
         n_classes = input.size()[1]
         if target.dim() < input.dim():
             target = expand_as_one_hot(target, C=n_classes, ignore_index=self.ignore_index)
+        target = target.float()
         weight_sum = target.sum(dim=1).sum(dim=1).sum(dim=1)
         edge_weight = weight_sum / (target.size()[2] * target.size()[3])
         edge_weight = edge_weight.unsqueeze(1).unsqueeze(2).unsqueeze(3)
@@ -203,7 +204,7 @@ class STEALEdgeLoss(nn.Module):
         one_sigmoid_out = torch.sigmoid(input)
         zero_sigmoid_out = 1 - one_sigmoid_out
 
-        loss = - non_edge_weight * target * torch.log(one_sigmoid_out.clamp(min = 1e-10)) -  edge_weight * (1 - target) * torch.log(zero_sigmoid_out.clamp(min = 1e-10))
+        loss = - non_edge_weight * target.float() * torch.log(one_sigmoid_out.clamp(min = 1e-10)) -  edge_weight * (1 - target.float()) * torch.log(zero_sigmoid_out.clamp(min = 1e-10))
 
         return (loss.mean(dim = 0)).sum()
 

@@ -49,7 +49,7 @@ class MLS(LevelSetAlignmentBase):
         else:
             raise ValueError('_fill_inside wrong method:%s' % method)
 
-    def _eval_singleK(self, gt_K, pK_Image, step_ckpts, lambda_, alpha, smoothing,
+    def _eval_singleK(self, gt_K, pK_Image, step_ckpts, lambda_, alpha, sigma, smoothing,
                       render_radius, is_gt_semantic, **kwargs):
 
         # This way of checking mostly cares about speed. as I am assuming the whole GT is very sparse.
@@ -68,7 +68,7 @@ class MLS(LevelSetAlignmentBase):
             init_ls = gt_K
             gt_K = seg2edges(gt_K, radius=render_radius)
 
-        h = self._compute_h(gt_K, pK_Image, lambda_, alpha)
+        h = self._compute_h(gt_K, pK_Image, lambda_, alpha, sigma)
 
         if 'balloon' in kwargs:
             balloon = kwargs['balloon']

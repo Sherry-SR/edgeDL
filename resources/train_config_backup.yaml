@@ -1,5 +1,7 @@
 # use a fixed random seed to guarantee that when you run the code twice you will get the same outcome
 manual_seed: null
+# Network input sample dimension
+dim: 2
 # model configuration
 model:
   # model class
@@ -59,8 +61,10 @@ lr_scheduler:
   gamma: 0.2
 # configuration for level set alignment
 level_set:
-  lambda_: 0.2
+  dim: 2
+  lambda_: 0.1
   alpha: 1
+  sigma: 1
   smoothing: 1
   render_radius: 1
   is_gt_semantic: True
@@ -68,7 +72,7 @@ level_set:
   balloon: 0
   threshold: 0.95
   step_ckpts: 50
-  batch_size: 16
+  dz: 16
   prefix: '/home/SENSETIME/shenrui/data/pelvis_predict_BCE'
   n_workers: 0
 # data loaders configuration
@@ -114,6 +118,8 @@ loaders:
         - name: ElasticDeformation
           spline_order: 0
         - name: SegToEdge
+          out_channels: 5
+          radius: 1
         - name: ToTensor
           expand_dims: false
           dtype: 'long'
@@ -124,6 +130,8 @@ loaders:
           expand_dims: true
       label:
         - name: SegToEdge
+          out_channels: 5
+          radius: 1
         - name: ToTensor
           expand_dims: false
           dtype: 'long'

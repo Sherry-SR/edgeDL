@@ -37,30 +37,17 @@ class LevelSetAlignmentBase:
         :param fn_debug: usually a function fn(image,str)... maybe a wrapper to plot.imshow(image,title)
         """
         self.n_workers = n_workers
-
-        if config is None:
-            self.options_dict = {
-                'step_ckpts': 50,
-                'lambda_': 0.2,
-                'alpha': 1.0,
-                'smoothing': 2,
-                'render_radius': 2,
-                'is_gt_semantic': True,
-                'h_callback': cutils.compute_h_additive,
-                'method': 'MLS'
-            }
-        else:
-            self.options_dict = config
+        self.options_dict = config
         self.history = None
         print(' LevelSetAlignment config: ', self.options_dict)
 
-    def _compute_h(self, gt_K, pK_Image, lambda_, alpha):
+    def _compute_h(self, gt_K, pK_Image, lambda_, alpha, sigma):
         if (('h_callback' in self.options_dict) == True) and (self.options_dict['h_callback'] is not None):
             _fn = self.options_dict['h_callback']
         else:
             _fn = cutils.compute_h_additive  # ...it should raise value error leaving like this to avoid breaking old experiment
 
-        return _fn(gt_K, pK_Image, lambda_, alpha)
+        return _fn(gt_K, pK_Image, lambda_, alpha, sigma)
 
     def __call__(self, gt, pk):
         raise NotImplementedError()

@@ -5,7 +5,7 @@ import numpy as np
 import torch
 from scipy.ndimage import rotate, map_coordinates, gaussian_filter
 from scipy.ndimage.filters import convolve
-from scipy.ndimage.morphology import binary_dilation
+from scipy.ndimage.morphology import binary_dilation, distance_transform_edt
 from skimage.filters import gaussian
 from skimage.segmentation import find_boundaries
 from torchvision.transforms import Compose
@@ -210,37 +210,48 @@ class GaussianNoise:
         return np.clip(noisy_m, 0, self.max_value).astype(m.dtype)
 
 class SegToEdge:
-    """
-    """
-
-    def __init__(self, dtype=np.float32, radius = 1, connectivity = 8, **kwargs):
+    def __init__(self, out_channels, radius = 1, dtype=np.float32, **kwargs):
         self.dtype = dtype
         self.radius = radius
-        self.connectivity = connectivity
+        self.out_channels = out_channels
 
     def __call__(self, m):
-        label_val  = np.unique(m)
-        if self.connectivity == 4:
-            k = np.ones((3,3), dtype=int)
-        elif self.connectivity == 8:
-            k = np.zeros((3,3), dtype = int)
-            k[1] = 1
-            k[:, 1] = 1
-        edges = np.zeros(m.shape, dtype = self.dtype)
-        # add channel dimension
-        for i in range(len(label_val)):
-            if label_val[i] == 0:
-                continue
-            mask = m == label_val[i]
-            mask = mask.astype(np.bool)
-            edges = edges + label_val[i] * (binary_dilation(~mask, k, iterations = self.radius) & mask)
+        """
+        :param image: semantic map should be HxWx1 with values 0,1,label_ignores
+        :param radius: radius size
+        :param label_ignores: values to mask.
+        :return: edgemap with boundary computed based on radius
+        """
 
+        # we need to pad the borders, to solve problems with dt around the boundaries of the image.
+        if len(m.shape) == 3:
+            image_pad = np.pad(m, ((1, 1), (1, 1), (1, 1)), mode='constant', constant_values=0)
+        elif len(m.shape) == 2:
+            image_pad = np.pad(m, ((1, 1), (1, 1)), mode='constant', constant_values=0)
+        else:
+            raise NotImplementedError
+        edges = []
+        for i in range(self.out_channels):
+            mask = image_pad == (i+1)
+            dist1 = distance_transform_edt(mask)
+            dist2 = distance_transform_edt(1.0 - mask)
+            dist = dist1 + dist2
+            # removing padding, it shouldnt affect result other than if the image is seg to the boundary.
+            if len(m.shape) == 3:
+                dist = dist[1:-1, 1:-1, 1:-1]
+            elif len(m.shape) == 2:
+                dist = dist[1:-1, 1:-1]
+            assert dist.shape == m.shape
+            dist[dist > self.radius] = 0
+            dist = (dist > 0).astype(np.uint8)  # just 0 or 1
+            edges.append(dist)
+        edges = np.array(edges, dtype = self.dtype)
         return edges
 
 class ToTensor:
     """
     Converts a given input numpy.ndarray into torch.Tensor. Adds additional 'channel' axis when the input is 3D
-    and expand_dims=True (use for raw data of the shape (D, H, W)).
+    and expand_dims=True (use for raw data of the shape (D, H, W) or (H, W)).
     """
 
     def __init__(self, expand_dims, dtype=np.float32, **kwargs):
@@ -248,7 +259,7 @@ class ToTensor:
         self.dtype = dtype
 
     def __call__(self, m):
-        assert m.ndim in [2, 3, 4], 'Supports only 3D (DxHxW) or 4D (CxDxHxW) images'
+        assert m.ndim in [2, 3, 4], 'Supports only 3D (CxHxW) or 4D (CxDxHxW) images'
         # add channel dimension
         if self.expand_dims and (m.ndim == 2 or m.ndim == 3):
             m = np.expand_dims(m, axis=0)

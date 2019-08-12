@@ -65,7 +65,7 @@ import math
 from torch.autograd import Variable
 import numpy as np
 
-BatchNorm = nn.BatchNorm2d
+BatchNorm = nn.BatchNorm3d
 
 
 class Bottleneck(nn.Module):
@@ -80,12 +80,12 @@ class Bottleneck(nn.Module):
             dilation = 4
             padding = 4
 
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False, stride=stride)
+        self.conv1 = nn.Conv3d(inplanes, planes, kernel_size=1, bias=False, stride=stride)
         self.bn1 = BatchNorm(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1,
+        self.conv2 = nn.Conv3d(planes, planes, kernel_size=3, stride=1,
                                padding=padding, bias=False, dilation=dilation)
         self.bn2 = BatchNorm(planes)
-        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
+        self.conv3 = nn.Conv3d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = BatchNorm(planes * 4)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
@@ -159,11 +159,11 @@ class SideOutputCrop(nn.Module):
     def __init__(self, num_output, kernel_sz=None, stride=None, upconv_pad=0, do_crops=True):
         super(SideOutputCrop, self).__init__()
         self._do_crops = do_crops
-        self.conv = nn.Conv2d(num_output, out_channels=1, kernel_size=1, stride=1, padding=0, bias=True)
+        self.conv = nn.Conv3d(num_output, out_channels=1, kernel_size=1, stride=1, padding=0, bias=True)
 
         if kernel_sz is not None:
             self.upsample = True
-            self.upsampled = nn.ConvTranspose2d(1, out_channels=1, kernel_size=kernel_sz, stride=stride,
+            self.upsampled = nn.ConvTranspose3d(1, out_channels=1, kernel_size=kernel_sz, stride=stride,
                                                 padding=upconv_pad,
                                                 bias=False)
             ##doing crops
@@ -188,8 +188,8 @@ class Res5OutputCrop(nn.Module):
     def __init__(self, in_channels=2048, kernel_sz=16, stride=8, nclasses=20, upconv_pad=0, do_crops=True):
         super(Res5OutputCrop, self).__init__()
         self._do_crops = do_crops
-        self.conv = nn.Conv2d(in_channels, nclasses, kernel_size=1, stride=1, padding=0, bias=True)
-        self.upsampled = nn.ConvTranspose2d(nclasses, out_channels=nclasses, kernel_size=kernel_sz, stride=stride,
+        self.conv = nn.Conv3d(in_channels, nclasses, kernel_size=1, stride=1, padding=0, bias=True)
+        self.upsampled = nn.ConvTranspose3d(nclasses, out_channels=nclasses, kernel_size=kernel_sz, stride=stride,
                                             padding=upconv_pad,
                                             bias=False, groups=nclasses)
         if self._do_crops is True:
@@ -205,15 +205,16 @@ class Res5OutputCrop(nn.Module):
 
 
 def get_upsample_filter(size):
-    """Make a 2D bilinear kernel suitable for upsampling"""
+    """Make a 3D bilinear kernel suitable for upsampling"""
     factor = (size + 1) // 2
     if size % 2 == 1:
         center = factor - 1
     else:
         center = factor - 0.5
-    og = np.ogrid[:size, :size]
+    og = np.ogrid[:size, :size, :size]
     filter = (1 - abs(og[0] - center) / factor) * \
-             (1 - abs(og[1] - center) / factor)
+             (1 - abs(og[1] - center) / factor) * \
+             (1 - abs(og[2] - center) / factor)
     return torch.from_numpy(filter).float()
 
 
@@ -224,12 +225,12 @@ class ResNet(nn.Module):
         self.inplanes = 64
         super(ResNet, self).__init__()
         self._nclasses = out_channels
-        self.conv1 = nn.Conv2d(in_channels, 64, kernel_size=7, stride=1, padding=3,
+        self.conv1 = nn.Conv3d(in_channels, 64, kernel_size=7, stride=1, padding=3,
                                bias=False)
 
         self.bn1 = BatchNorm(64)
         self.relu = nn.ReLU(inplace=True)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=0, ceil_mode=True)  # define ceil mode
+        self.maxpool = nn.MaxPool3d(kernel_size=3, stride=2, padding=0, ceil_mode=True)  # define ceil mode
 
         self.layer1 = self._make_layer(block, 64, layers[0], 2)  # res2
         self.layer2 = self._make_layer(block, 128, layers[1], 3, stride=2)  # res3
@@ -252,7 +253,7 @@ class ResNet(nn.Module):
         self.score_cls_side5 = Res5Output_fn(kernel_sz=16, stride=8, nclasses=self._nclasses)
 
         num_classes = self._nclasses
-        self.ce_fusion = nn.Conv2d(4 * num_classes, num_classes, groups=num_classes, kernel_size=1, stride=1, padding=0,
+        self.ce_fusion = nn.Conv3d(4 * num_classes, num_classes, groups=num_classes, kernel_size=1, stride=1, padding=0,
                                    bias=True)
 
         if final_sigmoid:
@@ -261,16 +262,16 @@ class ResNet(nn.Module):
             self.final_activation = None
 
         for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+            if isinstance(m, nn.Conv3d):
+                n = m.kernel_size[0] * m.kernel_size[1] * m.kernel_size[2] * m.out_channels
                 m.weight.data.normal_(0, math.sqrt(2. / n))
             elif isinstance(m, BatchNorm):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
-            elif isinstance(m, nn.ConvTranspose2d):
-                c1, c2, h, w = m.weight.data.size()
-                weight = get_upsample_filter(h)
-                m.weight.data = weight.view(1, 1, h, w).repeat(c1, c2, 1, 1)
+            elif isinstance(m, nn.ConvTranspose3d):
+                c1, c2, d, h, w = m.weight.data.size()
+                weight = get_upsample_filter(d)
+                m.weight.data = weight.view(1, 1, d, h, w).repeat(c1, c2, 1, 1, 1)
                 if m.bias is not None:
                     m.bias.data.zero_()
 
@@ -292,7 +293,7 @@ class ResNet(nn.Module):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
             downsample = nn.Sequential(
-                nn.Conv2d(self.inplanes, planes * block.expansion,
+                nn.Conv3d(self.inplanes, planes * block.expansion,
                           kernel_size=1, stride=stride, bias=False),
                 BatchNorm(planes * block.expansion),
             )
@@ -307,13 +308,13 @@ class ResNet(nn.Module):
 
     def _sliced_concat(self, res1, res2, res3, res5, num_classes):
         out_dim = num_classes * 4
-        out_tensor = Variable(torch.FloatTensor(res1.size(0), out_dim, res1.size(2), res1.size(3))).cuda()
+        out_tensor = Variable(torch.FloatTensor(res1.size(0), out_dim, res1.size(2), res1.size(3), res1.size(4))).cuda()
         class_num = 0
         for i in range(0, out_dim, 4):
-            out_tensor[:, i, :, :] = res5[:, class_num, :, :]
-            out_tensor[:, i + 1, :, :] = res1[:, 0, :, :]  # it needs this trick for multibatch
-            out_tensor[:, i + 2, :, :] = res2[:, 0, :, :]
-            out_tensor[:, i + 3, :, :] = res3[:, 0, :, :]
+            out_tensor[:, i, :, :] = res5[:, class_num, :, :, :]
+            out_tensor[:, i + 1, :, :, :] = res1[:, 0, :, :, :]  # it needs this trick for multibatch
+            out_tensor[:, i + 2, :, :, :] = res2[:, 0, :, :, :]
+            out_tensor[:, i + 3, :, :, :] = res3[:, 0, :, :, :]
 
             class_num += 1
 
@@ -360,10 +361,10 @@ class BasicBlock(nn.Module):
 
     def __init__(self, inplanes, planes, stride=1, downsample=None):
         super(BasicBlock, self).__init__()
-        self.conv1 = conv3x3(inplanes, planes, stride)
+        self.conv1 = conv3x3x3(inplanes, planes, stride)
         self.bn1 = BatchNorm(planes)
         self.relu = nn.ReLU(inplace=True)
-        self.conv2 = conv3x3(planes, planes)
+        self.conv2 = conv3x3x3(planes, planes)
         self.bn2 = BatchNorm(planes)
         self.downsample = downsample
         self.stride = stride
@@ -386,18 +387,7 @@ class BasicBlock(nn.Module):
 
         return out
 
-def conv3x3(in_planes, out_planes, stride=1):
-    "3x3 convolution with padding"
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
+def conv3x3x3(in_planes, out_planes, stride=1):
+    "3x3x3 convolution with padding"
+    return nn.Conv3d(in_planes, out_planes, kernel_size=3, stride=stride,
                      padding=1, bias=False)
-
-def get_model(config):
-    def _model_class(class_name):
-        m = importlib.import_module('models.casenet2d.model')
-        clazz = getattr(m, class_name)
-        return clazz
-
-    assert 'model' in config, 'Could not find model configuration'
-    model_config = config['model']
-    model_class = _model_class(model_config['name'])
-    return model_class(**model_config)

@@ -204,7 +204,7 @@ class STEALEdgeLoss:
         one_sigmoid_out = torch.sigmoid(input)
         zero_sigmoid_out = 1 - one_sigmoid_out
 
-        loss = - non_edge_weight * target * torch.log(one_sigmoid_out.clamp(min = 1e-10)) -  edge_weight * (1 - target) * torch.log(zero_sigmoid_out.clamp(min = 1e-10))
+        loss = - non_edge_weight * target.float() * torch.log(one_sigmoid_out.clamp(min = 1e-10)) -  edge_weight * (1 - target.float()) * torch.log(zero_sigmoid_out.clamp(min = 1e-10))
 
         return (loss.mean(dim = 0)).sum()
 

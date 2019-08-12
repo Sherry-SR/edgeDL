@@ -184,7 +184,7 @@ class NNTrainer:
             input, target, weight = self._split_training_batch(t)
             output, loss = self._forward_pass(input, target, weight)
             train_losses.update(loss.item(), self._batch_size(input))
-
+            
             # if model contains final_activation layer for normalizing logits apply it, otherwise both
             # the evaluation metric as well as images in tensorboard will be incorrectly computed
             if hasattr(self.model, 'final_activation'):
@@ -200,7 +200,6 @@ class NNTrainer:
             loss.backward()
             self.optimizer.step()
             
-
             if self.num_iterations % self.validate_after_iters == 0:
                 # evaluate on validation set
                 eval_score = self.validate(self.loaders['val'])
@@ -280,26 +279,13 @@ class NNTrainer:
             self.model.train()
 
     def align(self, loader):
-        self.logger.info(f'Level set alignment... ')
-        if self.level_set_config is None:
-            self.level_set_config = {
-                'lambda_': 0.2,
-                'alpha': 1,
-                'smoothing': 1,
-                'render_radius': 1,
-                'is_gt_semantic': True,
-                'method': 'MLS',
-                'balloon': 0,
-                'threshold': 0.95,
-                'step_ckpts': 50,
-                'batch_size': 16,
-                'prefix': None,
-                'n_workers': 8
-            }
+        self.logger.info(f'Level set alignment at [{self.num_iterations}/{self.max_num_iterations}], Epoch [{self.num_epoch}/{self.max_num_epochs - 1}].')
+        assert self.level_set_config is not None
         if self.level_set_config['prefix'] is not None:
             folderpath = self.level_set_config['prefix']+str(self.num_iterations)
             if not os.path.exists(folderpath):
                 os.mkdir(folderpath)
+        dim = self.level_set_config.get('dim', 2)
         n_workers = self.level_set_config.get('n_workers', 0)
         cbox = ContourBox.LevelSetAlignment(n_workers=n_workers, config=self.level_set_config)
         datasets = loader.dataset.datasets
@@ -310,12 +296,16 @@ class NNTrainer:
                 for i in tqdm(range(len(datasets))):
                     iz, iy, ix = datasets[i].raw.shape
                     affine = datasets[i].affine
-                    batch_size = self.level_set_config.get('betch_size', 16)
-                    for js in range(0, iz, batch_size):
-                        je = min(iz, js+batch_size)
+                    dz = self.level_set_config.get('dz', 16)
+                    for js in range(0, iz, dz):
+                        je = min(iz, js+dz)
                         idx = slice(js, je)
-                        input = torch.from_numpy(np.expand_dims((datasets[i].raw[idx]).astype(np.float32), axis = 1)).to(self.device)
-                        pred = torch.sigmoid(self.model(input))
+                        if dim == 2:
+                            input = torch.from_numpy(((datasets[i].raw[idx]).astype(np.float32))[:,np.newaxis,:,:]).to(self.device)
+                            pred = torch.sigmoid(self.model(input))
+                        elif dim == 3:
+                            input = torch.from_numpy(((datasets[i].raw[idx]).astype(np.float32))[np.newaxis,np.newaxis,:,:,:]).to(self.device)
+                            pred = torch.sigmoid(self.model(input)).squeeze(0).permute(1,0,2,3)
                         gt = self._expand_as_one_hot(torch.from_numpy((datasets[i].label[idx]).astype(np.long)).to(self.device), pred.shape[1])
                         output = cbox({'seg': gt, 'bdry': None}, pred)
                         output = np.multiply(np.sum(output, axis=1) > 0, np.argmax(output, axis=1) + 1)
@@ -473,6 +463,9 @@ class NNTrainer:
         shape.insert(1, C+1)
         shape = tuple(shape)
 
-        # expand the input tensor to Nx1xHxW
+        # expand the input tensor to Nx1x(D)xHxW
         src = input.unsqueeze(1)
-        return torch.zeros(shape).to(input.device).scatter_(1, src, 1)[:, 1:, :, :]
+        if input.dim() == 3:
+            return torch.zeros(shape).to(input.device).scatter_(1, src, 1)[:, 1:, :, :]
+        elif input.dim() == 4:
+            return torch.zeros(shape).to(input.device).scatter_(1, src, 1)[:, 1:, :, :, :]
