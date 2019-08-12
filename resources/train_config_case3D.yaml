@@ -29,7 +29,7 @@ trainer:
   # how many iterations before start level set alignment
   align_start_iters: 5000
   # how many iterations between level set alignment
-  align_after_iters: 1000
+  align_after_iters: 2000
   # max number of epochs
   epochs: 100
   # max number of iterations
@@ -94,7 +94,7 @@ loaders:
   val_path:
     - '/mnt/lustre/shenrui/data/pelvis_resampled/dataset_val.txt'
   # how many subprocesses to use for data loading
-  num_workers: 8
+  num_workers: 16
   # batch size in training process
   batch_size: 8
   # data transformations/augmentations

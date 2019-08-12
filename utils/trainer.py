@@ -184,7 +184,7 @@ class NNTrainer:
             input, target, weight = self._split_training_batch(t)
             output, loss = self._forward_pass(input, target, weight)
             train_losses.update(loss.item(), self._batch_size(input))
-            
+
             # if model contains final_activation layer for normalizing logits apply it, otherwise both
             # the evaluation metric as well as images in tensorboard will be incorrectly computed
             if hasattr(self.model, 'final_activation'):
@@ -199,8 +199,19 @@ class NNTrainer:
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
-            
-            if self.num_iterations % self.validate_after_iters == 0:
+
+            if (self.num_iterations == 1) or (self.num_iterations % self.log_after_iters == 0):
+                # log stats, params and images
+                self.logger.info(
+                    f'Training iteration [{self.num_iterations}/{self.max_num_iterations}]. Batch [{i}/{len(train_loader) - 1}]. Epoch [{self.num_epoch}/{self.max_num_epochs - 1}]')
+                self.logger.info(
+                    f'Training stats. Loss: {train_losses.avg}. Evaluation score: {train_eval_scores.avg}')
+                self._log_stats('train', train_losses.avg, train_eval_scores.avg)
+
+                train_losses = RunningAverage()
+                train_eval_scores = RunningAverage()
+
+            if (self.num_iterations == 1) or (self.num_iterations % self.validate_after_iters == 0):
                 # evaluate on validation set
                 eval_score = self.validate(self.loaders['val'])
                 # adjust learning rate if necessary
@@ -212,23 +223,10 @@ class NNTrainer:
                 self._log_lr()
                 # remember best validation metric
                 is_best = self._is_best_eval_score(eval_score)
-
                 # save checkpoint
                 self._save_checkpoint(is_best)
-                
                 self._log_params()
                 #self._log_images(input, target, output)
-
-            if self.num_iterations % self.log_after_iters == 0:
-                # log stats, params and images
-                self.logger.info(
-                    f'Training iteration [{self.num_iterations}/{self.max_num_iterations}]. Batch [{i}/{len(train_loader) - 1}]. Epoch [{self.num_epoch}/{self.max_num_epochs - 1}]')
-                self.logger.info(
-                    f'Training stats. Loss: {train_losses.avg}. Evaluation score: {train_eval_scores.avg}')
-                self._log_stats('train', train_losses.avg, train_eval_scores.avg)
-
-                train_losses = RunningAverage()
-                train_eval_scores = RunningAverage()
 
             if (self.num_iterations >= self.align_start_iters) and (self.num_iterations % self.align_after_iters == 0):
                 self.loaders['train'] = self.align(self.loaders['train'])
