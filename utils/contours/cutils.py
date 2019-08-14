@@ -1,4 +1,5 @@
-# Modified by Rui Shen, 08/08/2019
+# modified by Rui Shen, Aug 2019
+# ------------------------------------------------------------------
 
 # Copyright (c) 2019, NVIDIA CORPORATION. All rights reserved.
 #
@@ -54,7 +55,7 @@ def update_callback_in_image(image):
     return fn_post_process_callback
 
 
-def seg2edges(image, radius):
+def seg2edges(image, radius, dim):
     """
     :param image: semantic map should be HxW with values 0,1,label_ignores
     :param radius: radius size
@@ -65,13 +66,20 @@ def seg2edges(image, radius):
         return image
 
     # we need to pad the borders, to solve problems with dt around the boundaries of the image.
-    image_pad = np.pad(image, ((1, 1), (1, 1)), mode='constant', constant_values=0)
+    if dim == 2:
+        image_pad = np.pad(image, ((1, 1), (1, 1)), mode='constant', constant_values=0)
+    elif dim == 3:
+        image_pad = np.pad(image, ((1, 1), (1, 1), (1, 1)), mode='constant', constant_values=0)
+
     dist1 = distance_transform_edt(image_pad)
     dist2 = distance_transform_edt(1.0 - image_pad)
     dist = dist1 + dist2
 
     # removing padding, it shouldnt affect result other than if the image is seg to the boundary.
-    dist = dist[1:-1, 1:-1]
+    if dim == 2:
+         dist = dist[1:-1, 1:-1]
+    elif dim == 3:
+        dist = dist[1:-1, 1:-1, 1:-1]
     assert dist.shape == image.shape
 
     dist[dist > radius] = 0

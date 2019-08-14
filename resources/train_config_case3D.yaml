@@ -1,10 +1,10 @@
-# use a fixed random seed to guarantee that when you run the code twice you will get the same outcome
+# Set a fixed random seed for reproducibility, or null
 manual_seed: null
-# Network input sample dimension
+# Network dimension, determine whether to use 2D network or 3D network
 dim: 3
 # model configuration
 model:
-  # model class
+  # model class, CASENet is based on ResNet
   name: ResNet
   # number of input channels to the model
   in_channels: 1
@@ -12,19 +12,19 @@ model:
   out_channels: 5
   # set layers
   layers: [3, 4, 6, 3]
-  # apply element-wise nn.Sigmoid after the final 1x1 convolution, otherwise apply nn.Softmax
+  # whether to apply the sigmoid function, set false for training, true for testing
   final_sigmoid: False
 # trainer configuration
 trainer:
   # path to the checkpoint directory
   checkpoint_dir: /mnt/lustre/shenrui/project/edgeDL/checkpoints/pelvis/casenet3d
-  # path to latest checkpoint; if provided the training will be resumed from that checkpoint
+  # path to latest checkpoint or null; if provided the training will be resumed
   resume: null
   # how many iterations between validations
   validate_after_iters: 500
   # how many iterations between tensorboard logging
   log_after_iters: 1
-  # how many iterations evaluated in validations
+  # how many iterations evaluated in validations, set null for evaluating whole val set
   validate_iters: null
   # how many iterations before start level set alignment
   align_start_iters: 5000
@@ -32,7 +32,7 @@ trainer:
   align_after_iters: 2000
   # max number of epochs
   epochs: 100
-  # max number of iterations
+  # max number of iterations, set null for finishing all epochs
   iters: null
   # model with lower eval score is considered better
   eval_score_higher_is_better: False
@@ -46,7 +46,7 @@ optimizer:
 loss:
   # loss function to be used during training
   name: STEALEdgeLoss
-  # A manual rescaling weight given to each class.
+  # A manual rescaling weight given to each class
   loss_weight: null
   # a target value that is ignored and does not contribute to the input gradient
   ignore_index: null
@@ -61,31 +61,47 @@ lr_scheduler:
   gamma: 0.2
 # configuration for level set alignment
 level_set:
+  # Apply 2D or 3D level set
   dim: 3
+  # lambda value in level set equation (see README.md)
   lambda_: 0.1
+  # alpha value in level set equation (see README.md)
   alpha: 1
+  # sigma value applied to gt map
   sigma: 1
+  # smoothing iteration in each step
   smoothing: 1
+  # radius value in generating boundary (SegToEdge)
   render_radius: 1
+  # set true for semantic gt
   is_gt_semantic: True
+  # method used in level set ('MLS' for morphological level set)
   method: 'MLS'
+  # balloon value in level set
   balloon: 0
+  # threshold value in level set 
   threshold: 0.95
+  # level set iterations
   step_ckpts: 50
-  dz: 32
+  # input shape for level set, dz x Y x X, set dz as 1 for 2D level set
+  dz: 8
+  # batch size used in evaluation
+  batch_size: 8
+  # path prefix for saving alignment results, full folder path is prefix + num of iter
   prefix: '/mnt/lustre/shenrui/data/3D_pelvis_predict_BCE'
+  # number of subprocesses used for level set calculation
   n_workers: 16
 # data loaders configuration
 loaders:
-  # train patch size given to the network (adapt to fit in your GPU mem, generally the bigger patch the better)
+  # train patch size given to the network, can be 2D [W, H] or 3D [D, W, H]
   train_patch: [8, 350, 350]
-  # train stride between patches
+  # train stride between patches, can be 2D or 3D
   train_stride: [4, 200, 200]
   # validation patch (can be bigger than train patch since there is no backprop)
   val_patch: [8, 350, 350]
   # validation stride (validation patches doesn't need to overlap)
   val_stride: [8, 350, 350]
-  # clip value within the range
+  # clip image value within the range
   clip_val: [-1000, 2000]
   # paths to the training datasets
   train_path:

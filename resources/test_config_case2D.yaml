@@ -5,7 +5,7 @@ save_path: /mnt/lustre/shenrui/data/pelvis_predict_BCE20000
 prediction_channel: null
 # model configuration
 model:
-  # model class
+  # model class, CASENet is based on ResNet
   name: ResNet
   # number of input channels to the model
   in_channels: 1
@@ -13,7 +13,7 @@ model:
   out_channels: 5
   # set layers
   layers: [3, 4, 23, 3]
-  # apply element-wise nn.Sigmoid after the final 1x1 convolution
+  # whether to apply the sigmoid function, set false for training, true for testing
   final_sigmoid: True
 # evaluation metric configuration
 eval_metric:
@@ -43,6 +43,8 @@ loaders:
           expand_dims: true
       label:
         - name: SegToEdge
+          out_channels: 5
+          radius: 1
         - name: ToTensor
           expand_dims: false
           dtype: 'long'

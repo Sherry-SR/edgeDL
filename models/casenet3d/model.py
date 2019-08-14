@@ -1,3 +1,6 @@
+# modified by Rui Shen, Aug 2019
+# ------------------------------------------------------------------
+
 # Copyright (c) 2019, NVIDIA CORPORATION. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without

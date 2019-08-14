@@ -197,7 +197,7 @@ class STEALEdgeLoss:
         if target.dim() < input.dim():
             target = expand_as_one_hot(target, C=n_classes, ignore_index=self.ignore_index)
         weight_sum = target.sum(dim=1).sum(dim=1).sum(dim=1)
-        edge_weight = weight_sum / (target.size()[2] * target.size()[3])
+        edge_weight = weight_sum.float() / (target.size()[2] * target.size()[3])
         edge_weight = edge_weight.unsqueeze(1).unsqueeze(2).unsqueeze(3)
         non_edge_weight = 1 - edge_weight
 

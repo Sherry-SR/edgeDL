@@ -1,3 +1,6 @@
+# modified by Rui Shen, Aug 2019
+# ------------------------------------------------------------------
+
 # Copyright (c) 2019, NVIDIA CORPORATION. All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -50,7 +53,7 @@ class MLS(LevelSetAlignmentBase):
             raise ValueError('_fill_inside wrong method:%s' % method)
 
     def _eval_singleK(self, gt_K, pK_Image, step_ckpts, lambda_, alpha, sigma, smoothing,
-                      render_radius, is_gt_semantic, **kwargs):
+                      render_radius, is_gt_semantic, dim, **kwargs):
 
         # This way of checking mostly cares about speed. as I am assuming the whole GT is very sparse.
 
@@ -59,6 +62,10 @@ class MLS(LevelSetAlignmentBase):
         if all_zeros:
             return gt_K
 
+        if dim == 2:
+            gt_K = gt_K[0]
+            pK_Image = pK_Image[0]
+
         if is_gt_semantic is False:
             # filling inside_ to represent the curve
             # this may have problem with boundaries that are not closed(corners of the image dimension)
@@ -66,7 +73,7 @@ class MLS(LevelSetAlignmentBase):
             init_ls = self._fill_inside(gt_K)
         else:
             init_ls = gt_K
-            gt_K = seg2edges(gt_K, radius=render_radius)
+            gt_K = seg2edges(gt_K, radius=render_radius, dim=dim)
 
         h = self._compute_h(gt_K, pK_Image, lambda_, alpha, sigma)
 
@@ -82,6 +89,9 @@ class MLS(LevelSetAlignmentBase):
 
         evolution = morphological_geodesic_active_contour(h, step_ckpts, init_ls, smoothing=smoothing, balloon=balloon, threshold=threshold)
 
+        if dim == 2:
+            evolution = evolution[np.newaxis, :, :]
+    
         return evolution
 
     def process_batch_fn(self, args):
@@ -120,7 +130,7 @@ class MLS(LevelSetAlignmentBase):
         assert gt.shape == pk.shape
         global shared_mem_data
         shared_mem_data = (gt, pk)
-        N, K, H, W = pk.shape
+        N, K, D, H, W = pk.shape
         #
         pool = mp.Pool(min(N, self.n_workers))
 
@@ -140,21 +150,20 @@ class MLS(LevelSetAlignmentBase):
         """
 
         assert gt.shape == pk.shape
-        N, K, H, W = pk.shape
+        N, K, D, H, W = pk.shape
 
-        gt = np.reshape(gt, [N * K, 1, H, W])
-        pk = np.reshape(pk, [N * K, 1, H, W])
+        gt = np.reshape(gt, [N * K, 1, D, H, W])
+        pk = np.reshape(pk, [N * K, 1, D, H, W])
 
         global shared_mem_data
         shared_mem_data = (gt, pk)
 
-        #
         pool = mp.Pool(min(N * K, self.n_workers))
 
         output_ = pool.map(self.process_batch_hack_multicpu,
                            [(i, 1, id(gt), id(pk)) for i in range(N * K)])
 
-        output_ = np.reshape(output_, [N, K, H, W])
+        output_ = np.reshape(output_, [N, K, D, H, W])
         pool.close()
         pool.join()
         # we need to reorder the array to make it compatible with the rest of the api.
@@ -174,7 +183,8 @@ class MLS(LevelSetAlignmentBase):
             pk = pk.cpu().numpy()
 
         assert gt.shape == pk.shape
-        N, K, H, W = pk.shape
+
+        N, K, D, H, W = pk.shape
 
         if N * K > 1 and self.n_workers > 1:
             output_ = self._multi_cpu_call_2(gt, pk)
@@ -184,4 +194,4 @@ class MLS(LevelSetAlignmentBase):
                 gt_hat = self.process_batch_fn((i, K, gt, pk))
                 output_.append(gt_hat)
 
-        return np.stack(output_, axis=0) # NxKxLStepsxHxW
+        return np.stack(output_, axis=0) # NxKxDxHxW

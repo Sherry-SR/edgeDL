@@ -14,17 +14,17 @@ from utils.contours import ContourBox
 import nibabel as nib
 
 class NNTrainer:
-    """3D UNet trainer.
+    """Network trainer.
 
     Args:
-        model (Unet3D): UNet 3D model to be trained
+        model: network model to be trained
         optimizer (nn.optim.Optimizer): optimizer used for training
         lr_scheduler (torch.optim.lr_scheduler._LRScheduler): learning rate scheduler
             WARN: bear in mind that lr_scheduler.step() is invoked after every validation step
             (i.e. validate_after_iters) not after every epoch. So e.g. if one uses StepLR with step_size=30
             the learning rate will be adjusted after every 30 * validate_after_iters iterations.
         loss_criterion (callable): loss function
-        eval_criterion (callable): used to compute training/validation metric (such as Dice, IoU, AP or Rand score)
+        eval_criterion (callable): used to compute training/validation metricc
             saving the best checkpoint is based on the result of this function on the validation set
         device (torch.device): device to train on
         loaders (dict): 'train' and 'val' loaders
@@ -39,6 +39,9 @@ class NNTrainer:
         best_eval_score (float): best validation score so far (higher better)
         num_iterations (int): useful when loading the model from the checkpoint
         num_epoch (int): useful when loading the model from the checkpoint
+        align_start_iters (int): number of iterations before alignment start
+        align_after_iters (int): number of iterations between two alignment steps
+        level_set_config (dict): configure files for level set alignment
     """
 
     def __init__(self, model, optimizer, lr_scheduler, loss_criterion,
@@ -228,7 +231,7 @@ class NNTrainer:
                 self._log_params()
                 #self._log_images(input, target, output)
 
-            if (self.num_iterations >= self.align_start_iters) and (self.num_iterations % self.align_after_iters == 0):
+            if (self.num_iterations >= self.align_start_iters) and ((self.num_iterations - self.align_start_iters) % self.align_after_iters == 0):
                 self.loaders['train'] = self.align(self.loaders['train'])
 
             if self.max_num_iterations < self.num_iterations:
@@ -294,20 +297,38 @@ class NNTrainer:
                 for i in tqdm(range(len(datasets))):
                     iz, iy, ix = datasets[i].raw.shape
                     affine = datasets[i].affine
-                    dz = self.level_set_config.get('dz', 16)
-                    for js in range(0, iz, dz):
-                        je = min(iz, js+dz)
+                    if dim == 2:
+                        dz = 1
+                    elif dim == 3:
+                        dz = self.level_set_config.get('dz', 1)
+                    batch_size = self.level_set_config.get('batch_size', 1)
+                    js = 0
+                    while js < iz:
+                        je = min(iz, js+dz*batch_size)
+                        if (je - js) % dz != 0:
+                            je = iz - (je - js) % dz
+                            batch_size = 1
+                            dz = iz - je
                         idx = slice(js, je)
+                        js = je
+
+                        data_sliced = (datasets[i].raw[idx]).astype(np.float32)
+                        label_sliced = np.reshape((datasets[i].label[idx]), (-1, dz, iy, ix)).astype(np.long)
+
                         if dim == 2:
-                            input = torch.from_numpy(((datasets[i].raw[idx]).astype(np.float32))[:,np.newaxis,:,:]).to(self.device)
+                            input = torch.from_numpy(data_sliced[:,np.newaxis,:,:]).to(self.device)
                             pred = torch.sigmoid(self.model(input))
+                            pred = pred.unsqueeze(2)
+
                         elif dim == 3:
-                            input = torch.from_numpy(((datasets[i].raw[idx]).astype(np.float32))[np.newaxis,np.newaxis,:,:,:]).to(self.device)
-                            pred = torch.sigmoid(self.model(input)).squeeze(0).permute(1,0,2,3)
-                        gt = self._expand_as_one_hot(torch.from_numpy((datasets[i].label[idx]).astype(np.long)).to(self.device), pred.shape[1])
+                            data_sliced = np.reshape(data_sliced, (-1, dz, iy, ix)).astype(np.float32)
+                            input = torch.from_numpy(data_sliced[:,np.newaxis,:,:,:]).to(self.device)
+                            pred = torch.sigmoid(self.model(input)).squeeze(0)
+                            
+                        gt = self._expand_as_one_hot(torch.from_numpy(label_sliced).to(self.device), pred.shape[1])
                         output = cbox({'seg': gt, 'bdry': None}, pred)
                         output = np.multiply(np.sum(output, axis=1) > 0, np.argmax(output, axis=1) + 1)
-                        loader.dataset.datasets[i].label[idx] = output
+                        loader.dataset.datasets[i].label[idx] = np.reshape(output, (-1, iy, ix))
                     if self.level_set_config['prefix'] is not None:
                         output_file = self._get_output_file(datasets[i], folderpath=folderpath, suffix='_refine')
                         nib.save(nib.Nifti1Image((np.transpose(loader.dataset.datasets[i].label).astype(np.int16)), affine), output_file)
@@ -461,7 +482,7 @@ class NNTrainer:
         shape.insert(1, C+1)
         shape = tuple(shape)
 
-        # expand the input tensor to Nx1x(D)xHxW
+        # expand the input tensor to NxCx(D)xHxW
         src = input.unsqueeze(1)
         if input.dim() == 3:
             return torch.zeros(shape).to(input.device).scatter_(1, src, 1)[:, 1:, :, :]

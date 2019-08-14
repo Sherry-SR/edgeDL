@@ -94,7 +94,7 @@ def main():
     logger = get_logger('CASENetTrainer')
 
     parser = argparse.ArgumentParser(description='CASENet training')
-    parser.add_argument('--config', type=str, help='Path to the YAML config file', default='/home/SENSETIME/shenrui/Dropbox/SenseTime/edgeDL/resources/train_config_3Dbackup.yaml')
+    parser.add_argument('--config', type=str, help='Path to the YAML config file', default='/home/SENSETIME/shenrui/Dropbox/SenseTime/edgeDL/resources/train_config_backup.yaml')
     args = parser.parse_args()
 
     # Load and log experiment configuration
