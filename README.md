@@ -15,7 +15,7 @@ Implemented boundary detection based on "Devil is in the Edges: Learning Semanti
 
 1. Setup configuration for 2D CASENet with 2D level set: training ([link](./resources/train_config_case2D.yaml)), testing ([link](./resources/test_config_case2D.yaml))
 2. Setup configuration for 3D CASENet with 3D level set: trianing ([link](./resources/train_config_case3D.yaml))
-3. obsolete configuration code: UNet3D traning([link](./resources/train_config_unet3D.yaml)), testing ([link](file:///Users/sherryshen/Dropbox/SenseTime/edgeDL/resources/test_config_unet3D.yaml))
+3. obsolete configuration code: UNet3D traning([link](./resources/train_config_unet3D.yaml)), testing ([link](./resources/test_config_unet3D.yaml))
 
 ### Usage
 
